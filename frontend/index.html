@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fallen Kingdoms - Replay 2D & Statistiques</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220%22%3E<text y=%2226%22 font-size=%2226%22>⚔️</text></svg>">
+</head>
+<body class="dark-theme">
+  <!-- Top Navigation Bar -->
+  <header class="navbar">
+    <div class="navbar-brand">
+      <div class="logo-icon">⚔️</div>
+      <div class="logo-text">
+        <span class="brand-title">FALLEN KINGDOMS</span>
+        <span class="brand-subtitle">Match Replay 2D</span>
+      </div>
+    </div>
+
+    <!-- Center Navigation Tabs -->
+    <nav class="nav-tabs">
+      <button class="nav-tab active" data-tab="map-view">
+        <span class="tab-icon">🗺️</span> Vue Carte 2D
+      </button>
+      <button class="nav-tab" data-tab="stats-view">
+        <span class="tab-icon">📊</span> Statistiques
+      </button>
+      <button class="nav-tab" data-tab="charts-view">
+        <span class="tab-icon">📈</span> Graphiques
+      </button>
+      <button class="nav-tab" data-tab="chat-view">
+        <span class="tab-icon">💬</span> Chat & Événements
+      </button>
+    </nav>
+
+    <!-- Right Controls: DB Selector, World Selector, Day Info -->
+    <div class="navbar-actions">
+      <!-- Database Switcher -->
+      <div class="selector-group">
+        <label for="db-select" class="selector-label">Base de données :</label>
+        <div class="custom-select-wrapper">
+          <select id="db-select" class="custom-select">
+            <option value="">Chargement...</option>
+          </select>
+        </div>
+        <button id="btn-upload-db" class="btn btn-sm btn-outline" title="Ajouter / Remplacer une base de données">
+          ➕ BDD
+        </button>
+      </div>
+
+      <!-- Export Recap Button -->
+      <button id="btn-open-recap" class="btn btn-sm btn-outline btn-recap" title="Exporter le récapitulatif du match (Discord & JSON)">
+        📋 Résumé Match
+      </button>
+
+      <!-- World Selector -->
+      <div class="world-toggle">
+        <button class="btn btn-sm world-btn active" data-world="1">🌍 Overworld</button>
+        <button class="btn btn-sm world-btn" data-world="2">🔥 Nether</button>
+      </div>
+
+      <!-- Day / In-game Time Badge -->
+      <div id="game-day-badge" class="game-badge day-mode">
+        <span class="day-icon">☀️</span>
+        <span id="game-day-text">Jour 1</span>
+        <span id="game-time-text" class="game-time-sub">12:00</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="main-container">
+
+    <!-- VIEW 1: MAP VIEWPORT -->
+    <section id="view-map" class="tab-content active">
+      <!-- 2D Canvas Container -->
+      <div class="canvas-wrapper" id="canvas-wrapper">
+        <canvas id="map-canvas"></canvas>
+
+        <!-- Canvas Floating Controls HUD -->
+        <div class="canvas-hud top-left">
+          <div class="coordinates-hud">
+            <span>X: <strong id="hud-x">0</strong></span>
+            <span>Z: <strong id="hud-z">0</strong></span>
+            <span class="hud-zoom">Zoom: <strong id="hud-zoom">100%</strong></span>
+          </div>
+        </div>
+
+        <div class="canvas-hud top-right">
+          <div class="hud-controls-group">
+            <button id="btn-zoom-in" class="hud-btn" title="Zoom avant (Molette)">➕</button>
+            <button id="btn-zoom-out" class="hud-btn" title="Zoom arrière (Molette)">➖</button>
+            <button id="btn-center-map" class="hud-btn" title="Centrer sur (0,0)">🎯</button>
+            <button id="btn-fit-map" class="hud-btn" title="Ajuster la vue">🔲</button>
+            <button id="btn-hud-regenerate-map" class="hud-btn" title="Regénérer la carte depuis data/map/region/">🗺️</button>
+            <button id="btn-toggle-layers" class="hud-btn" title="Couches & Filtres">⚙️</button>
+          </div>
+
+          <!-- Layers Dropdown Modal -->
+          <div id="layers-panel" class="layers-dropdown hidden">
+            <h4>Calques de la Carte</h4>
+            <label class="layer-toggle">
+              <input type="checkbox" id="layer-bases" checked>
+              <span>Zones de Base</span>
+            </label>
+            <label class="layer-toggle">
+              <input type="checkbox" id="layer-blocks" checked>
+              <span>Constructions (Blocs posés)</span>
+            </label>
+            <label class="layer-toggle">
+              <input type="checkbox" id="layer-players" checked>
+              <span>Joueurs & Têtes</span>
+            </label>
+            <label class="layer-toggle">
+              <input type="checkbox" id="layer-names" checked>
+              <span>Pseudos</span>
+            </label>
+            <label class="layer-toggle">
+              <input type="checkbox" id="layer-trails" checked>
+              <span>Trajectoires (30s)</span>
+            </label>
+            <label class="layer-toggle">
+              <input type="checkbox" id="layer-kills" checked>
+              <span>Éliminations (Crânes)</span>
+            </label>
+            <label class="layer-toggle">
+              <input type="checkbox" id="layer-explosions" checked>
+              <span>Explosions (TNT)</span>
+            </label>
+            <label class="layer-toggle">
+              <input type="checkbox" id="layer-grid" checked>
+              <span>Grille de coordonnées</span>
+            </label>
+            <div class="custom-map-section">
+              <span class="custom-map-status" id="custom-map-label">Fond : Procédural</span>
+              <div class="map-actions-buttons" style="display: flex; gap: 6px; margin-top: 6px;">
+                <button id="btn-upload-map" class="btn btn-xs btn-outline" style="flex: 1;">Charger map.png</button>
+                <button id="btn-regenerate-map" class="btn btn-xs btn-primary" style="flex: 1;" title="Regénérer la carte depuis data/map/region/">🔄 Regénérer</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Follow Player Indicator -->
+        <div id="follow-indicator" class="follow-indicator hidden">
+          <span>Caméra fixée sur <strong id="follow-player-name">Joueur</strong></span>
+          <button id="btn-unfollow" class="btn btn-xs btn-danger">Libérer</button>
+        </div>
+
+        <!-- Tooltip Hover Popover -->
+        <div id="canvas-tooltip" class="canvas-tooltip hidden"></div>
+      </div>
+
+      <!-- Right Collapsible Panel: Quick Stats & Events -->
+      <aside class="sidebar-panel" id="sidebar-panel">
+        <div class="sidebar-header">
+          <div class="sidebar-tabs">
+            <button class="side-tab active" data-sidetab="side-leaderboard">Classement</button>
+            <button class="side-tab" data-sidetab="side-killfeed">Kill Feed</button>
+            <button class="side-tab" data-sidetab="side-players">Joueurs (<span id="player-count">0</span>)</button>
+          </div>
+          <button id="btn-toggle-sidebar" class="btn-icon" title="Réduire / Agrandir le volet">▶</button>
+        </div>
+
+        <!-- Subpanel 1: Quick Leaderboard -->
+        <div id="side-leaderboard" class="sidebar-content active">
+          <!-- Team Filter Pills -->
+          <div class="team-filter-pills" id="team-filter-pills">
+            <button class="team-pill active" data-team="all">Tous</button>
+            <button class="team-pill pill-yellow" data-team="yellow">Jaune</button>
+            <button class="team-pill pill-purple" data-team="purple">Violet</button>
+            <button class="team-pill pill-green" data-team="green">Vert</button>
+            <button class="team-pill pill-blue" data-team="blue">Bleu</button>
+          </div>
+
+          <!-- Quick KPIs Cards -->
+          <div class="kpi-mini-grid">
+            <div class="kpi-mini-card">
+              <span class="kpi-mini-val" id="mini-diamonds">0</span>
+              <span class="kpi-mini-lbl">💎 Diamants</span>
+            </div>
+            <div class="kpi-mini-card">
+              <span class="kpi-mini-val" id="mini-kills">0</span>
+              <span class="kpi-mini-lbl">⚔️ Kills</span>
+            </div>
+            <div class="kpi-mini-card">
+              <span class="kpi-mini-val" id="mini-tnt">0</span>
+              <span class="kpi-mini-lbl">💣 TNT</span>
+            </div>
+            <div class="kpi-mini-card">
+              <span class="kpi-mini-val" id="mini-blocks">0</span>
+              <span class="kpi-mini-lbl">🧱 Construits</span>
+            </div>
+          </div>
+
+          <!-- Leaderboard List -->
+          <div class="leaderboard-list" id="side-leaderboard-list">
+            <!-- Populated dynamically -->
+          </div>
+        </div>
+
+        <!-- Subpanel 2: Live Killfeed -->
+        <div id="side-killfeed" class="sidebar-content">
+          <div class="killfeed-list" id="killfeed-list">
+            <!-- Populated dynamically -->
+          </div>
+        </div>
+
+        <!-- Subpanel 3: Player List -->
+        <div id="side-players" class="sidebar-content">
+          <div class="search-box">
+            <input type="text" id="player-search" placeholder="Rechercher un joueur..." class="input-search">
+          </div>
+          <div class="players-roster" id="players-roster">
+            <!-- Populated dynamically -->
+          </div>
+        </div>
+      </aside>
+    </section>
+
+
+    <!-- VIEW 2: FULL STATS VIEW -->
+    <section id="view-stats" class="tab-content">
+      <div class="stats-dashboard">
+        <div class="stats-topbar">
+          <h2>📊 Statistiques du Match en Direct</h2>
+          <div class="stats-filters">
+            <div class="filter-item">
+              <label>Équipe :</label>
+              <select id="stats-team-filter" class="custom-select">
+                <option value="all">Toutes les équipes</option>
+                <option value="yellow">Équipe Jaune</option>
+                <option value="purple">Équipe Violette</option>
+                <option value="green">Équipe Verte</option>
+                <option value="blue">Équipe Bleue</option>
+              </select>
+            </div>
+            <div class="filter-item">
+              <label>Recherche Joueur :</label>
+              <input type="text" id="stats-player-search" placeholder="Pseudo..." class="input-search">
+            </div>
+          </div>
+        </div>
+
+        <!-- Global Summary Cards -->
+        <div class="kpi-grid">
+          <div class="kpi-card card-diamond">
+            <div class="kpi-icon">💎</div>
+            <div class="kpi-data">
+              <div class="kpi-value" id="kpi-diamonds">0</div>
+              <div class="kpi-title">Diamants Minés</div>
+            </div>
+          </div>
+          <div class="kpi-card card-iron">
+            <div class="kpi-icon">⛏️</div>
+            <div class="kpi-data">
+              <div class="kpi-value" id="kpi-iron">0</div>
+              <div class="kpi-title">Fer Miné</div>
+            </div>
+          </div>
+          <div class="kpi-card card-gold">
+            <div class="kpi-icon">🪙</div>
+            <div class="kpi-data">
+              <div class="kpi-value" id="kpi-gold">0</div>
+              <div class="kpi-title">Or Miné</div>
+            </div>
+          </div>
+          <div class="kpi-card card-kills">
+            <div class="kpi-icon">⚔️</div>
+            <div class="kpi-data">
+              <div class="kpi-value" id="kpi-kills">0</div>
+              <div class="kpi-title">Kills PvP</div>
+            </div>
+          </div>
+          <div class="kpi-card card-deaths">
+            <div class="kpi-icon">💀</div>
+            <div class="kpi-data">
+              <div class="kpi-value" id="kpi-deaths">0</div>
+              <div class="kpi-title">Morts Total</div>
+            </div>
+          </div>
+          <div class="kpi-card card-tnt">
+            <div class="kpi-icon">💣</div>
+            <div class="kpi-data">
+              <div class="kpi-value" id="kpi-tnt">0</div>
+              <div class="kpi-title">TNT Posées</div>
+            </div>
+          </div>
+          <div class="kpi-card card-tnt-detonated">
+            <div class="kpi-icon">💥</div>
+            <div class="kpi-data">
+              <div class="kpi-value" id="kpi-tnt-detonated">0</div>
+              <div class="kpi-title">TNT Détonées</div>
+            </div>
+          </div>
+          <div class="kpi-card card-blocks">
+            <div class="kpi-icon">🧱</div>
+            <div class="kpi-data">
+              <div class="kpi-value" id="kpi-blocks-placed">0</div>
+              <div class="kpi-title">Blocs Posés</div>
+            </div>
+          </div>
+          <div class="kpi-card card-mined">
+            <div class="kpi-icon">⛏️</div>
+            <div class="kpi-data">
+              <div class="kpi-value" id="kpi-blocks-broken">0</div>
+              <div class="kpi-title">Blocs Minés</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Full Leaderboard Table -->
+        <div class="table-container">
+          <table class="leaderboard-table" id="full-leaderboard-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th class="sortable" data-sort="name"><span class="th-label">Joueur</span> <span class="sort-icon">⬍</span></th>
+                <th class="sortable" data-sort="team"><span class="th-label">Équipe</span> <span class="sort-icon">⬍</span></th>
+                <th class="sortable" data-sort="score"><span class="th-label">Score FK</span> <span class="sort-icon">⬍</span></th>
+                <th class="sortable" data-sort="diamonds"><span class="th-label">💎 Diamants</span> <span class="sort-icon">⬍</span></th>
+                <th class="sortable" data-sort="iron"><span class="th-label">⛏️ Fer</span> <span class="sort-icon">⬍</span></th>
+                <th class="sortable" data-sort="gold"><span class="th-label">🪙 Or</span> <span class="sort-icon">⬍</span></th>
+                <th class="sortable" data-sort="kills"><span class="th-label">⚔️ Kills</span> <span class="sort-icon">⬍</span></th>
+                <th class="sortable" data-sort="deaths"><span class="th-label">💀 Morts</span> <span class="sort-icon">⬍</span></th>
+                <th class="sortable" data-sort="tnt_placed"><span class="th-label">💣 Posées</span> <span class="sort-icon">⬍</span></th>
+                <th class="sortable" data-sort="tnt_detonated"><span class="th-label">💥 Détonées</span> <span class="sort-icon">⬍</span></th>
+                <th class="sortable" data-sort="blocks_placed"><span class="th-label">🧱 Posés</span> <span class="sort-icon">⬍</span></th>
+                <th class="sortable" data-sort="blocks_broken"><span class="th-label">⛏️ Minés</span> <span class="sort-icon">⬍</span></th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="full-leaderboard-body">
+              <!-- Populated dynamically -->
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Section 3: PvP Duel Matrix & Head-to-Head -->
+        <div class="duels-dashboard-section">
+          <div class="section-header">
+            <h3>⚔️ Matrice des Duels PvP & Confrontations Directes</h3>
+            <span class="section-sub">Qui domine qui ? Bilan des éliminations directes entre équipes et face-à-face entre joueurs.</span>
+          </div>
+
+          <div class="duels-grid-layout">
+            <!-- Team vs Team Matrix Card -->
+            <div class="duel-matrix-card">
+              <h4>🎯 Matrice des Éliminations (Équipe vs Équipe)</h4>
+              <div class="matrix-table-wrapper" id="team-matrix-wrapper">
+                <div class="loading-placeholder">Chargement de la matrice...</div>
+              </div>
+            </div>
+
+            <!-- Head-to-Head Duels Table Card -->
+            <div class="duel-list-card">
+              <div class="duel-list-header">
+                <h4>⚔️ Face-à-Face Joueurs (Rivalités)</h4>
+                <input type="text" id="duel-player-filter" placeholder="Filtrer par joueur..." class="input-search input-search-sm">
+              </div>
+              <div class="duels-scroll-container" id="player-duels-container">
+                <div class="loading-placeholder">Chargement des duels...</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+
+    <!-- VIEW 3: CHARTS & ANALYTICS VIEW -->
+    <section id="view-charts" class="tab-content">
+      <div class="charts-dashboard">
+        <div class="charts-topbar">
+          <div class="charts-title-area">
+            <h2>📈 Évolution Temporelle du Match</h2>
+            <span class="charts-subtitle">Courbes interactives cumulées par équipe, synchronisées avec le curseur de lecture</span>
+          </div>
+          <div class="charts-metric-selector">
+            <button class="btn-metric active" data-metric="diamonds">💎 Diamants</button>
+            <button class="btn-metric" data-metric="ores">⛏️ Minerais (Fer+Or)</button>
+            <button class="btn-metric" data-metric="kills">⚔️ Kills PvP</button>
+            <button class="btn-metric" data-metric="tnt">💥 TNT Détonées</button>
+            <button class="btn-metric" data-metric="score">⭐ Score Global</button>
+          </div>
+        </div>
+
+        <div class="charts-team-legend" id="charts-team-legend">
+          <!-- Injected dynamically with toggleable pills -->
+        </div>
+
+        <div class="chart-canvas-container" id="chart-canvas-container">
+          <canvas id="analytics-canvas"></canvas>
+        </div>
+
+        <div class="chart-footer-hints">
+          <span>💡 <strong>Astuce :</strong> Cliquez n'importe où sur le graphique pour téléporter le replay à ce moment précis ! Le curseur rouge indique la position actuelle.</span>
+        </div>
+      </div>
+    </section>
+
+
+    <!-- VIEW 4: CHAT & LOGS VIEW -->
+    <section id="view-chat" class="tab-content">
+      <div class="chat-dashboard">
+        <div class="chat-panel">
+          <div class="chat-header">
+            <h3>💬 Messages du Chat Minecraft (Synchronisés)</h3>
+            <span class="chat-sub">Les messages s'affichent au fur et à mesure que la vidéo avance.</span>
+          </div>
+          <div class="chat-messages-container" id="chat-messages-box">
+            <!-- Populated dynamically -->
+          </div>
+        </div>
+
+        <div class="events-panel">
+          <div class="events-header">
+            <h3>⚔️ Faits Marquants & Événements Clés</h3>
+            <span class="events-sub">Cliquez sur un événement pour vous téléporter dans le temps !</span>
+          </div>
+          <div class="milestones-list" id="milestones-box">
+            <!-- Populated dynamically -->
+          </div>
+          <h4 class="mt-4">Journal Complet des Morts</h4>
+          <div class="events-log-container" id="full-deaths-log">
+            <!-- Populated dynamically -->
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Video Playback Bottom Control Bar -->
+  <footer class="playback-bar">
+    <!-- Milestone Indicators Bar directly above Scrubber -->
+    <div class="scrubber-milestones-track" id="milestones-track">
+      <!-- Markers injected dynamically -->
+    </div>
+
+    <!-- Timeline Scrubber Bar -->
+    <div class="scrubber-wrapper">
+      <input type="range" id="time-slider" class="scrubber-input" min="0" max="1000" value="0" step="1">
+      <div id="scrubber-tooltip" class="scrubber-tooltip hidden">00:00:00</div>
+    </div>
+
+    <!-- Playback Controls Row -->
+    <div class="playback-controls-row">
+      <!-- Left: Play/Pause, Step Buttons -->
+      <div class="playback-left">
+        <button id="btn-play-pause" class="btn-playback btn-play" title="Lecture / Pause (Espace)">
+          ▶
+        </button>
+        <button id="btn-step-backward" class="btn-playback-sm" title="Reculer de 15s (Flèche Gauche)">
+          ⏪ -15s
+        </button>
+        <button id="btn-step-forward" class="btn-playback-sm" title="Avancer de 15s (Flèche Droite)">
+          +15s ⏩
+        </button>
+
+        <!-- Time Clock Display -->
+        <div class="playback-timer">
+          <span id="current-playback-time" class="time-main">00:00:00</span>
+          <span class="time-sep">/</span>
+          <span id="total-playback-duration" class="time-total">04:00:00</span>
+          <span id="playback-real-clock" class="time-real">(16 Sept 16:53)</span>
+        </div>
+      </div>
+
+      <!-- Center: Speed Controls -->
+      <div class="playback-center">
+        <span class="speed-label">Vitesse :</span>
+        <div class="speed-buttons" id="speed-buttons">
+          <button class="btn-speed" data-speed="1">1x</button>
+          <button class="btn-speed" data-speed="2">2x</button>
+          <button class="btn-speed" data-speed="5">5x</button>
+          <button class="btn-speed active" data-speed="10">10x</button>
+          <button class="btn-speed" data-speed="30">30x</button>
+          <button class="btn-speed" data-speed="60">60x</button>
+          <button class="btn-speed" data-speed="120">120x</button>
+        </div>
+      </div>
+
+      <!-- Right: Jump to Half Players / Match Start / End -->
+      <div class="playback-right">
+        <button id="btn-jump-half" class="btn btn-sm btn-outline" title="Aller au moment où la moitié des joueurs était connectée">
+          👥 50% Connectés
+        </button>
+        <button id="btn-jump-start" class="btn btn-sm btn-outline" title="Sauter au lancement du match (/fk game start)">
+          🚀 Lancement Match
+        </button>
+        <button id="btn-jump-stop" class="btn btn-sm btn-outline" title="Aller à la fin du match">
+          🏁 Fin
+        </button>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Hidden File Inputs for Uploads -->
+  <input type="file" id="input-upload-db-file" accept=".db,.sqlite,.sqlite3" style="display: none;">
+  <input type="file" id="input-upload-map-file" accept=".png,.jpg,.jpeg" style="display: none;">
+
+  <!-- Phase Transition Toast Notification -->
+  <div id="phase-toast" class="phase-toast"></div>
+
+  <!-- Modal: Match Recap & Discord Export -->
+  <div id="modal-match-recap" class="modal-overlay hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-title-group">
+          <h3>📋 Récapitulatif du Match & Export Discord</h3>
+          <span class="modal-subtitle">Générez un rapport complet partageable sur votre serveur Discord</span>
+        </div>
+        <button id="btn-close-recap-modal" class="btn-close" title="Fermer">✕</button>
+      </div>
+      <div class="modal-body">
+        <!-- Quick stats summary pills -->
+        <div class="recap-summary-pills" id="recap-pills">
+          <!-- Injected dynamically -->
+        </div>
+
+        <!-- Discord markdown textarea -->
+        <div class="recap-text-container">
+          <div class="recap-text-header">
+            <label for="recap-discord-textarea">Texte formaté Markdown (prêt pour Discord) :</label>
+            <span class="recap-hint">Copiez et collez directement dans votre salon Discord !</span>
+          </div>
+          <textarea id="recap-discord-textarea" class="recap-textarea" readonly></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="btn-copy-discord" class="btn btn-primary">
+          📋 Copier pour Discord
+        </button>
+        <button id="btn-download-json" class="btn btn-outline">
+          💾 Télécharger JSON
+        </button>
+        <button id="btn-dismiss-recap" class="btn btn-secondary">
+          Fermer
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script type="module" src="/static/js/app.js"></script>
+</body>
+</html>

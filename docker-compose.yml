@@ -1,0 +1,16 @@
+services:
+  fk-replay:
+    build: .
+    container_name: fk-replay-app
+    ports:
+      - "8050:8050"
+    environment:
+      - PORT=8050
+      - DATA_DIR=/app/data
+    volumes:
+      # Mount databases and uploaded maps in real-time
+      - .:/app/data
+      # Mount code so changes are live
+      - ./backend:/app/backend
+      - ./frontend:/app/frontend
+    restart: unless-stopped
