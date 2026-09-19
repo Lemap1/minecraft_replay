@@ -33,6 +33,7 @@ export class TimelinePlayer {
     this.dayBadge = document.getElementById('game-day-badge');
     this.milestonesTrack = document.getElementById('milestones-track');
 
+    this.bookmarks = [];
     this.lastNotifiedDay = 0;
     this.toastTimeout = null;
 
@@ -104,7 +105,7 @@ export class TimelinePlayer {
     });
   }
 
-  setRange({ minTime, maxTime, matchStart, matchStop, halfPlayersTime, defaultStartTime, hasExplicitStart, milestones = [] }) {
+  setRange({ minTime, maxTime, matchStart, matchStop, halfPlayersTime, defaultStartTime, hasExplicitStart, rules = null, milestones = [] }) {
     this.minTime = minTime;
     this.maxTime = maxTime;
     this.matchStart = matchStart || minTime;
@@ -112,10 +113,14 @@ export class TimelinePlayer {
     this.halfPlayersTime = halfPlayersTime;
     this.defaultStartTime = defaultStartTime;
     this.hasExplicitStart = hasExplicitStart;
+    this.rules = rules || {
+      pvp_day: 3,
+      nether_day: 4,
+      end_day: 5,
+      assault_day: 7,
+      day_duration_seconds: 1200
+    };
 
-    // Requirement:
-    // Par défaut, début du FK (/fk game start).
-    // Si aucun début n'est trouvé, quand 50% des joueurs sont là.
     if (defaultStartTime) {
       this.currentTime = defaultStartTime;
     } else if (hasExplicitStart && matchStart) {
@@ -138,13 +143,19 @@ export class TimelinePlayer {
     const totalRange = this.maxTime - this.minTime;
     if (totalRange <= 0) return;
 
-    // 1. Render Minecraft Day Divisions (every 1200 seconds)
+    // 1. Render Dynamic Minecraft Day Divisions
     const start = this.matchStart || this.minTime;
     const duration = this.maxTime - start;
-    const totalDays = Math.ceil(duration / 1200);
+    const dayDuration = this.rules?.day_duration_seconds || 1200;
+    const totalDays = Math.ceil(duration / dayDuration);
+
+    const pvpDay = this.rules?.pvp_day || 3;
+    const netherDay = this.rules?.nether_day || 4;
+    const endDay = this.rules?.end_day || 5;
+    const assaultDay = this.rules?.assault_day || 7;
 
     for (let d = 0; d <= totalDays; d++) {
-      const dayTime = start + d * 1200;
+      const dayTime = start + d * dayDuration;
       if (dayTime > this.maxTime) break;
 
       const pct = ((dayTime - this.minTime) / totalRange) * 100;
@@ -157,9 +168,20 @@ export class TimelinePlayer {
       const dayNum = d + 1;
       let dayBadgeText = `J${dayNum}`;
       let isSpecial = false;
-      if (dayNum === 3) { dayBadgeText = `J3 ⚔️`; isSpecial = true; }
-      else if (dayNum === 4) { dayBadgeText = `J4 🔥`; isSpecial = true; }
-      else if (dayNum === 7) { dayBadgeText = `J7 💣`; isSpecial = true; }
+
+      if (dayNum === assaultDay) {
+        dayBadgeText = `J${dayNum} 💣`;
+        isSpecial = true;
+      } else if (dayNum === endDay && endDay > 0) {
+        dayBadgeText = `J${dayNum} 🔮`;
+        isSpecial = true;
+      } else if (dayNum === netherDay) {
+        dayBadgeText = `J${dayNum} 🔥`;
+        isSpecial = true;
+      } else if (dayNum === pvpDay) {
+        dayBadgeText = `J${dayNum} ⚔️`;
+        isSpecial = true;
+      }
 
       if (isSpecial) dayMarker.classList.add('special-phase');
 
@@ -188,6 +210,7 @@ export class TimelinePlayer {
       else if (m.type === 'first_blood') icon = '⚔️';
       else if (m.type === 'first_tnt') icon = '💣';
       else if (m.type === 'half_players') icon = '👥';
+      else if (m.type === 'chest_looted') icon = '🚨';
 
       pin.innerHTML = `<span>${icon}</span>`;
       pin.addEventListener('click', (e) => {
@@ -195,6 +218,61 @@ export class TimelinePlayer {
         this.seek(m.time);
       });
       this.milestonesTrack.appendChild(pin);
+    }
+
+    // Also render bookmarks on milestones track
+    this.renderBookmarks();
+  }
+
+  loadBookmarks(bookmarks = []) {
+    this.bookmarks = Array.isArray(bookmarks) ? [...bookmarks] : [];
+    if (this.bookmarks.length === 0 && typeof localStorage !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('fk_replay_bookmarks');
+        if (saved) this.bookmarks = JSON.parse(saved);
+      } catch (e) {
+        this.bookmarks = [];
+      }
+    }
+    this.renderBookmarks();
+    return this.bookmarks;
+  }
+
+  addBookmark(time, label = 'Signet') {
+    if (!this.bookmarks) this.bookmarks = [];
+    this.bookmarks.push({ time, label, created_at: Date.now() });
+    this.saveBookmarks();
+    this.renderBookmarks();
+  }
+
+  saveBookmarks() {
+    if (typeof localStorage !== 'undefined') {
+      try {
+        localStorage.setItem('fk_replay_bookmarks', JSON.stringify(this.bookmarks || []));
+      } catch (e) {}
+    }
+  }
+
+  renderBookmarks() {
+    if (!this.milestonesTrack || !this.bookmarks || this.bookmarks.length === 0) return;
+    const totalRange = this.maxTime - this.minTime;
+    if (totalRange <= 0) return;
+
+    for (const bm of this.bookmarks) {
+      const pct = ((bm.time - this.minTime) / totalRange) * 100;
+      if (pct < 0 || pct > 100) continue;
+
+      const marker = document.createElement('div');
+      marker.className = 'milestone-pin bookmark-pin';
+      marker.style.left = `${pct}%`;
+      marker.style.cursor = 'pointer';
+      marker.title = `📌 Signet : ${bm.label || 'Signet'} (${this.formatDuration(bm.time - this.minTime)})`;
+      marker.innerHTML = `<span class="pin-icon" style="font-size: 11px;">📌</span>`;
+      marker.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.seek(bm.time);
+      });
+      this.milestonesTrack.appendChild(marker);
     }
   }
 
@@ -275,26 +353,35 @@ export class TimelinePlayer {
     this.currentText.innerText = this.formatDuration(elapsed);
     this.realClockText.innerText = `(${this.formatRealDate(this.currentTime)})`;
 
-    // In-game FK Day (1 day = 1200 real seconds = 20 minutes)
+    // In-game FK Day based on dynamic rules
+    const daySec = this.rules?.day_duration_seconds || 1200;
     const matchElapsed = Math.max(0, this.currentTime - (this.matchStart || this.minTime));
-    const dayIndex = Math.floor(matchElapsed / 1200) + 1;
-    const dayRemainderSec = Math.floor(matchElapsed % 1200);
+    const dayIndex = Math.floor(matchElapsed / daySec) + 1;
+    const dayRemainderSec = Math.floor(matchElapsed % daySec);
 
-    // Day rule reminder
-    let dayRules = '';
-    if (dayIndex === 1) dayRules = 'Minage & Préparation';
-    else if (dayIndex === 2) dayRules = 'Préparation';
-    else if (dayIndex === 3) dayRules = 'PVP Actif ⚔️';
-    else if (dayIndex === 4) dayRules = 'Nether Ouvert 🔥';
-    else if (dayIndex < 7) dayRules = 'Pré-Assauts';
-    else dayRules = 'Assauts & TNT Autorisés 💣';
+    const pvpDay = this.rules?.pvp_day || 3;
+    const netherDay = this.rules?.nether_day || 4;
+    const endDay = this.rules?.end_day || 5;
+    const assaultDay = this.rules?.assault_day || 7;
+
+    // Dynamic Day rule reminder
+    let dayRules = 'Minage & Préparation';
+    if (dayIndex >= assaultDay) {
+      dayRules = 'Assauts & TNT Autorisés 💣';
+    } else if (dayIndex >= endDay && endDay > 0) {
+      dayRules = 'The End Ouvert 🔮';
+    } else if (dayIndex >= netherDay) {
+      dayRules = 'Nether Ouvert 🔥';
+    } else if (dayIndex >= pvpDay) {
+      dayRules = 'PVP Actif ⚔️';
+    }
 
     if (this.gameDayText) {
       this.gameDayText.innerText = `Jour ${dayIndex} (${dayRules})`;
     }
 
-    // Convert dayRemainderSec (0..1200) to Minecraft in-game clock (06:00 to 06:00 next day)
-    const mcMinutesTotal = Math.floor((dayRemainderSec / 1200) * 1440);
+    // Convert dayRemainderSec to Minecraft in-game clock (06:00 to 06:00 next day)
+    const mcMinutesTotal = Math.floor((dayRemainderSec / daySec) * 1440);
     const mcHours = Math.floor((mcMinutesTotal + 360) / 60) % 24;
     const mcMins = Math.floor((mcMinutesTotal + 360) % 60);
     if (this.gameTimeText) {
@@ -311,15 +398,17 @@ export class TimelinePlayer {
       this.dayBadge.classList.toggle('day-mode', !isNight);
     }
 
-    // Trigger Phase Transition Toast during playback
+    // Trigger Dynamic Phase Transition Toast during playback
     if (this.isPlaying && this.lastNotifiedDay !== dayIndex) {
       if (this.lastNotifiedDay > 0) {
-        if (dayIndex === 3) {
-          this.showPhaseToast('⚔️ JOUR 3 : LE PVP EST MAINTENANT ACTIVÉ !', 'toast-pvp');
-        } else if (dayIndex === 4) {
-          this.showPhaseToast('🔥 JOUR 4 : LE NETHER EST MAINTENANT OUVERT !', 'toast-nether');
-        } else if (dayIndex === 7) {
-          this.showPhaseToast('💣 JOUR 7 : LES ASSAUTS ET LA TNT SONT AUTORISÉS !', 'toast-assaults');
+        if (dayIndex === pvpDay) {
+          this.showPhaseToast(`⚔️ JOUR ${dayIndex} : LE PVP EST MAINTENANT ACTIVÉ !`, 'toast-pvp');
+        } else if (dayIndex === netherDay) {
+          this.showPhaseToast(`🔥 JOUR ${dayIndex} : LE NETHER EST MAINTENANT OUVERT !`, 'toast-nether');
+        } else if (dayIndex === endDay && endDay > 0) {
+          this.showPhaseToast(`🔮 JOUR ${dayIndex} : THE END EST MAINTENANT OUVERT !`, 'toast-end');
+        } else if (dayIndex === assaultDay) {
+          this.showPhaseToast(`💣 JOUR ${dayIndex} : LES ASSAUTS ET LA TNT SONT AUTORISÉS !`, 'toast-assaults');
         }
       }
       this.lastNotifiedDay = dayIndex;

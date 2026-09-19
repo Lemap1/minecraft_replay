@@ -336,5 +336,12 @@ app.mount("/static", StaticFiles(directory="frontend"), name="static")
 
 @app.get("/")
 def serve_index():
-    """Serve frontend index.html."""
-    return FileResponse("frontend/index.html")
+    """Serve frontend index.html with no-cache headers."""
+    return FileResponse(
+        "frontend/index.html",
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0"
+        }
+    )

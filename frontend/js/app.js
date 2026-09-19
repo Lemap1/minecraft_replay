@@ -128,17 +128,6 @@ class App {
       setTimeout(() => this.renderer.resizeCanvas(), 300);
     });
 
-    // World toggle buttons (Overworld / Nether)
-    const worldBtns = document.querySelectorAll('.world-btn');
-    worldBtns.forEach(btn => {
-      btn.addEventListener('click', () => {
-        worldBtns.forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        const wid = parseInt(btn.getAttribute('data-world')) || 1;
-        this.switchWorld(wid);
-      });
-    });
-
     // Canvas HUD Zoom buttons
     document.getElementById('btn-zoom-in')?.addEventListener('click', () => {
       this.renderer.scale = Math.min(8.0, this.renderer.scale * 1.25);
@@ -151,6 +140,122 @@ class App {
     });
     document.getElementById('btn-fit-map')?.addEventListener('click', () => {
       this.renderer.fitBounds();
+    });
+
+    // Altitude Y-layer filter buttons
+    const yButtons = document.querySelectorAll('.y-filter-btn');
+    yButtons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        yButtons.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const yVal = btn.getAttribute('data-y') || 'all';
+        this.renderer.yFilter = yVal;
+      });
+    });
+
+    // Map Calibration Modal
+    const calibModal = document.getElementById('modal-map-calibration');
+    const btnCalib = document.getElementById('btn-calibrate-map');
+    const btnCloseCalib = document.getElementById('btn-close-calibrate-modal');
+    const btnCancelCalib = document.getElementById('btn-calib-cancel');
+    const btnSaveCalib = document.getElementById('btn-calib-save');
+    const btnAutoCalib = document.getElementById('btn-calib-auto');
+
+    const inputMinX = document.getElementById('calib-min-x');
+    const inputMaxX = document.getElementById('calib-max-x');
+    const inputMinZ = document.getElementById('calib-min-z');
+    const inputMaxZ = document.getElementById('calib-max-z');
+    const spanWidth = document.getElementById('calib-span-width');
+    const spanHeight = document.getElementById('calib-span-height');
+
+    const updateCalibSpans = () => {
+      const minX = parseInt(inputMinX.value) || 0;
+      const maxX = parseInt(inputMaxX.value) || 0;
+      const minZ = parseInt(inputMinZ.value) || 0;
+      const maxZ = parseInt(inputMaxZ.value) || 0;
+      if (spanWidth) spanWidth.innerText = Math.max(0, maxX - minX);
+      if (spanHeight) spanHeight.innerText = Math.max(0, maxZ - minZ);
+    };
+
+    [inputMinX, inputMaxX, inputMinZ, inputMaxZ].forEach(inp => {
+      inp?.addEventListener('input', updateCalibSpans);
+    });
+
+    btnCalib?.addEventListener('click', () => {
+      const currentBounds = this.meta?.map_bounds || this.meta?.bounds?.[this.currentWorld] || {
+        min_x: -1000, max_x: 1000, min_z: -1000, max_z: 1000
+      };
+      if (inputMinX) inputMinX.value = currentBounds.min_x;
+      if (inputMaxX) inputMaxX.value = currentBounds.max_x;
+      if (inputMinZ) inputMinZ.value = currentBounds.min_z;
+      if (inputMaxZ) inputMaxZ.value = currentBounds.max_z;
+      updateCalibSpans();
+      calibModal?.classList.remove('hidden');
+    });
+
+    const closeCalib = () => calibModal?.classList.add('hidden');
+    btnCloseCalib?.addEventListener('click', closeCalib);
+    btnCancelCalib?.addEventListener('click', closeCalib);
+
+    btnAutoCalib?.addEventListener('click', () => {
+      if (this.meta?.bases && this.meta.bases.length > 0) {
+        let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+        for (const b of this.meta.bases) {
+          if (b.x < minX) minX = b.x;
+          if (b.x > maxX) maxX = b.x;
+          if (b.z < minZ) minZ = b.z;
+          if (b.z > maxZ) maxZ = b.z;
+        }
+        const margin = 120;
+        inputMinX.value = Math.round(minX - margin);
+        inputMaxX.value = Math.round(maxX + margin);
+        inputMinZ.value = Math.round(minZ - margin);
+        inputMaxZ.value = Math.round(maxZ + margin);
+      } else if (this.meta?.bounds?.[this.currentWorld]) {
+        const b = this.meta.bounds[this.currentWorld];
+        inputMinX.value = b.min_x;
+        inputMaxX.value = b.max_x;
+        inputMinZ.value = b.min_z;
+        inputMaxZ.value = b.max_z;
+      }
+      updateCalibSpans();
+    });
+
+    btnSaveCalib?.addEventListener('click', async () => {
+      const minX = parseInt(inputMinX.value);
+      const maxX = parseInt(inputMaxX.value);
+      const minZ = parseInt(inputMinZ.value);
+      const maxZ = parseInt(inputMaxZ.value);
+
+      if (isNaN(minX) || isNaN(maxX) || isNaN(minZ) || isNaN(maxZ) || minX >= maxX || minZ >= maxZ) {
+        alert('Coordonnées invalides : le minimum doit être inférieur au maximum.');
+        return;
+      }
+
+      const bounds = { min_x: minX, max_x: maxX, min_z: minZ, max_z: maxZ };
+      try {
+        btnSaveCalib.innerText = '⏳ Enregistrement...';
+        const res = await fetch(`/api/save-map-bounds?db=${encodeURIComponent(this.currentDb || '')}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(bounds)
+        });
+        if (!res.ok) throw new Error('Échec de la sauvegarde');
+        if (!this.meta) this.meta = {};
+        this.meta.map_bounds = bounds;
+        if (this.renderer) {
+          this.renderer.meta.map_bounds = bounds;
+          const mapUrl = `/api/map-image?db=${encodeURIComponent(this.currentDb || '')}&world=${this.currentWorld}&t=${Date.now()}`;
+          this.renderer.reloadCustomMap(mapUrl, bounds);
+          this.renderer.fitBounds();
+        }
+        closeCalib();
+        alert('Coordonnées de la carte enregistrées et appliquées avec succès !');
+      } catch (err) {
+        alert('Erreur enregistrement calibrage : ' + err.message);
+      } finally {
+        btnSaveCalib.innerText = '💾 Sauvegarder & Appliquer';
+      }
     });
 
     // Layers dropdown toggle
@@ -176,6 +281,7 @@ class App {
       }
     };
     bindLayer('layer-bases', 'bases');
+    bindLayer('layer-chests', 'chests');
     bindLayer('layer-blocks', 'blocks');
     bindLayer('layer-players', 'players');
     bindLayer('layer-names', 'names');
@@ -346,15 +452,21 @@ class App {
       if (!metaRes.ok) throw new Error('Meta query failed');
       this.meta = await metaRes.json();
 
+      // Use default world from DB if specified
+      if (this.meta.default_world_id) {
+        this.currentWorld = this.meta.default_world_id;
+      }
+      this.renderWorldSelector(this.meta.worlds);
+
       // Update custom map label
       const mapLabel = document.getElementById('custom-map-label');
       if (mapLabel) {
         mapLabel.innerText = this.meta.has_custom_map ? 'Fond : Image PNG personnalisée' : 'Fond : Procédural';
       }
 
-      // 2. Fetch match events (kills, chats, explosions)
+      // 2. Fetch match events (kills, chats, explosions, chest_loots, breaches)
       const evRes = await fetch(`/api/events?db=${encodeURIComponent(dbName)}&world=${this.currentWorld}`);
-      const events = evRes.ok ? await evRes.json() : { deaths: [], chats: [], explosions: [] };
+      const events = evRes.ok ? await evRes.json() : { deaths: [], chats: [], explosions: [], chest_loots: [], breaches: [] };
 
       // 3. Fetch player trajectories
       const trajRes = await fetch(`/api/trajectories?db=${encodeURIComponent(dbName)}&world=${this.currentWorld}`);
@@ -365,30 +477,46 @@ class App {
       const blocksData = blocksRes.ok ? await blocksRes.json() : { blocks: [] };
 
       // Initialize components
-      this.renderer.setData({
-        meta: this.meta,
-        trajectories: trajData.points || [],
-        placedBlocks: blocksData.blocks || [],
-        events: events,
-        worldId: this.currentWorld
-      });
+      try {
+        this.renderer?.setData({
+          meta: this.meta,
+          trajectories: trajData.points || [],
+          placedBlocks: blocksData.blocks || [],
+          events: events,
+          worldId: this.currentWorld
+        });
+      } catch (e) {
+        console.error('[App] Erreur renderer.setData:', e);
+      }
 
-      this.timeline.setRange({
-        minTime: this.meta.time_range.min_time,
-        maxTime: this.meta.time_range.max_time,
-        matchStart: this.meta.time_range.match_start,
-        matchStop: this.meta.time_range.match_stop,
-        halfPlayersTime: this.meta.time_range.half_players_time,
-        defaultStartTime: this.meta.time_range.default_start_time,
-        hasExplicitStart: this.meta.time_range.has_explicit_start,
-        milestones: this.meta.milestones || []
-      });
+      try {
+        this.timeline?.setRange({
+          minTime: this.meta.time_range.min_time,
+          maxTime: this.meta.time_range.max_time,
+          matchStart: this.meta.time_range.match_start,
+          matchStop: this.meta.time_range.match_stop,
+          halfPlayersTime: this.meta.time_range.half_players_time,
+          defaultStartTime: this.meta.time_range.default_start_time,
+          hasExplicitStart: this.meta.time_range.has_explicit_start,
+          milestones: this.meta.milestones || [],
+          rules: this.meta.rules || {}
+        });
+        if (typeof this.timeline?.loadBookmarks === 'function') {
+          this.timeline.loadBookmarks(this.meta?.bookmarks || []);
+        }
+      } catch (e) {
+        console.error('[App] Erreur timeline.setRange:', e);
+      }
 
-      this.stats.setData({
-        meta: this.meta,
-        events: events,
-        currentDb: this.currentDb
-      });
+      try {
+        this.stats?.setData({
+          meta: this.meta,
+          events: events,
+          currentDb: this.currentDb
+        });
+      } catch (e) {
+        console.error('[App] Erreur stats.setData:', e);
+      }
 
       // 5. Fetch Analytics for Charts
       try {
@@ -439,6 +567,40 @@ class App {
     }
   }
 
+  renderWorldSelector(worlds) {
+    const container = document.getElementById('world-selector-container');
+    if (!container) return;
+    container.innerHTML = '';
+
+    if (!worlds || worlds.length === 0) {
+      worlds = [
+        { id: 1, name: 'Overworld', dimension_type: 'overworld' },
+        { id: 2, name: 'Nether', dimension_type: 'nether' }
+      ];
+    }
+
+    const icons = {
+      overworld: '🌍',
+      nether: '🔥',
+      the_end: '🔮',
+      custom: '🗺️'
+    };
+
+    worlds.forEach(w => {
+      const btn = document.createElement('button');
+      btn.className = `world-btn ${w.id === this.currentWorld ? 'active' : ''}`;
+      btn.setAttribute('data-world', w.id);
+      const icon = icons[w.dimension_type] || '🗺️';
+      btn.innerHTML = `<span class="world-icon">${icon}</span> ${w.name}`;
+      btn.addEventListener('click', () => {
+        container.querySelectorAll('.world-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        this.switchWorld(w.id);
+      });
+      container.appendChild(btn);
+    });
+  }
+
   async switchWorld(wid) {
     if (this.currentWorld === wid) return;
     this.currentWorld = wid;
@@ -475,21 +637,27 @@ class App {
         fetch(`/api/placed-blocks?db=${encodeURIComponent(dbName)}&world=${this.currentWorld}`)
       ]);
 
-      const events = evRes.ok ? await evRes.json() : { deaths: [], chats: [], explosions: [] };
+      const events = evRes.ok ? await evRes.json() : { deaths: [], chats: [], explosions: [], chest_loots: [], breaches: [] };
       const trajData = trajRes.ok ? await trajRes.json() : { points: [] };
       const blocksData = blocksRes.ok ? await blocksRes.json() : { blocks: [] };
 
       // Update renderer with new world data
-      this.renderer.setData({
-        meta: this.meta,
-        trajectories: trajData.points || [],
-        placedBlocks: blocksData.blocks || [],
-        events: events,
-        worldId: this.currentWorld
-      });
+      try {
+        this.renderer?.setData({
+          meta: this.meta,
+          trajectories: trajData.points || [],
+          placedBlocks: blocksData.blocks || [],
+          events: events,
+          worldId: this.currentWorld
+        });
+      } catch (e) {
+        console.error('[App] Erreur renderer.setData switchWorld:', e);
+      }
 
       // Update stats events
-      this.stats.events = events;
+      if (this.stats) {
+        this.stats.events = events;
+      }
 
       // Restore exact playback position without resetting timeline bounds
       this.renderer.setTime(savedTime);

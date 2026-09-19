@@ -54,10 +54,9 @@
         📋 Résumé Match
       </button>
 
-      <!-- World Selector -->
-      <div class="world-toggle">
-        <button class="btn btn-sm world-btn active" data-world="1">🌍 Overworld</button>
-        <button class="btn btn-sm world-btn" data-world="2">🔥 Nether</button>
+      <!-- World Selector (Populated dynamically) -->
+      <div id="world-selector-container" class="world-toggle">
+        <!-- Injected dynamically from meta.worlds -->
       </div>
 
       <!-- Day / In-game Time Badge -->
@@ -93,6 +92,7 @@
             <button id="btn-zoom-out" class="hud-btn" title="Zoom arrière (Molette)">➖</button>
             <button id="btn-center-map" class="hud-btn" title="Centrer sur (0,0)">🎯</button>
             <button id="btn-fit-map" class="hud-btn" title="Ajuster la vue">🔲</button>
+            <button id="btn-calibrate-map" class="hud-btn" title="Calibrer les coordonnées de la carte">📐</button>
             <button id="btn-hud-regenerate-map" class="hud-btn" title="Regénérer la carte depuis data/map/region/">🗺️</button>
             <button id="btn-toggle-layers" class="hud-btn" title="Couches & Filtres">⚙️</button>
           </div>
@@ -103,6 +103,10 @@
             <label class="layer-toggle">
               <input type="checkbox" id="layer-bases" checked>
               <span>Zones de Base</span>
+            </label>
+            <label class="layer-toggle">
+              <input type="checkbox" id="layer-chests" checked>
+              <span>Salles des Coffres & Pillages 📦</span>
             </label>
             <label class="layer-toggle">
               <input type="checkbox" id="layer-blocks" checked>
@@ -126,12 +130,22 @@
             </label>
             <label class="layer-toggle">
               <input type="checkbox" id="layer-explosions" checked>
-              <span>Explosions (TNT)</span>
+              <span>Explosions & Brèches 💥</span>
             </label>
             <label class="layer-toggle">
               <input type="checkbox" id="layer-grid" checked>
               <span>Grille de coordonnées</span>
             </label>
+            
+            <div class="hud-y-filter" style="margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.1);">
+              <span style="font-size: 11px; color: #94a3b8; display: block; margin-bottom: 5px;">Altitude (Profondeur Y) :</span>
+              <div style="display: flex; gap: 4px;">
+                <button class="btn btn-xs btn-outline y-filter-btn active" data-y="all" style="flex: 1;">Tous</button>
+                <button class="btn btn-xs btn-outline y-filter-btn" data-y="surface" style="flex: 1;" title="Surface (Y > 55)">Surface</button>
+                <button class="btn btn-xs btn-outline y-filter-btn" data-y="mines" style="flex: 1;" title="Mines (Y <= 55)">Mines</button>
+              </div>
+            </div>
+
             <div class="custom-map-section">
               <span class="custom-map-status" id="custom-map-label">Fond : Procédural</span>
               <div class="map-actions-buttons" style="display: flex; gap: 6px; margin-top: 6px;">
@@ -165,6 +179,11 @@
 
         <!-- Subpanel 1: Quick Leaderboard -->
         <div id="side-leaderboard" class="sidebar-content active">
+          <!-- Kingdom Status Header -->
+          <div id="kingdoms-status-box" class="kingdoms-status-box" style="margin-bottom: 10px; display: flex; flex-direction: column; gap: 4px;">
+            <!-- Injected dynamically -->
+          </div>
+
           <!-- Team Filter Pills -->
           <div class="team-filter-pills" id="team-filter-pills">
             <button class="team-pill active" data-team="all">Tous</button>
@@ -543,7 +562,58 @@
     </div>
   </div>
 
+  <!-- Modal: Map Coordinate Calibration -->
+  <div id="modal-map-calibration" class="modal-overlay hidden">
+    <div class="modal-card modal-card-sm">
+      <div class="modal-header">
+        <div class="modal-title-group">
+          <h3>📐 Calibrage des Coordonnées de la Carte</h3>
+          <span class="modal-subtitle">Ajustez les bornes Minecraft pour aligner parfaitement votre image de carte</span>
+        </div>
+        <button id="btn-close-calibrate-modal" class="btn-close" title="Fermer">✕</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size: 13px; color: #94a3b8; margin-bottom: 14px;">
+          Entrez les coordonnées des bordures du monde Minecraft correspondant aux bords de l'image <code style="color: #38bdf8;">map.png</code>.
+        </p>
+        <div class="calibration-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px;">
+          <div class="form-group">
+            <label style="font-size: 12px; color: #cbd5e1; font-weight: 600; display: block; margin-bottom: 4px;">Min X (Ouest / Gauche) :</label>
+            <input type="number" id="calib-min-x" class="input-search" style="width: 100%;" value="-1024">
+          </div>
+          <div class="form-group">
+            <label style="font-size: 12px; color: #cbd5e1; font-weight: 600; display: block; margin-bottom: 4px;">Max X (Est / Droite) :</label>
+            <input type="number" id="calib-max-x" class="input-search" style="width: 100%;" value="1536">
+          </div>
+          <div class="form-group">
+            <label style="font-size: 12px; color: #cbd5e1; font-weight: 600; display: block; margin-bottom: 4px;">Min Z (Nord / Haut) :</label>
+            <input type="number" id="calib-min-z" class="input-search" style="width: 100%;" value="-1024">
+          </div>
+          <div class="form-group">
+            <label style="font-size: 12px; color: #cbd5e1; font-weight: 600; display: block; margin-bottom: 4px;">Max Z (Sud / Bas) :</label>
+            <input type="number" id="calib-max-z" class="input-search" style="width: 100%;" value="1024">
+          </div>
+        </div>
+        <div class="calib-dimensions" style="background: rgba(15, 23, 42, 0.6); padding: 10px; border-radius: 6px; border: 1px solid #334155; font-size: 12px; color: #94a3b8; display: flex; justify-content: space-between;">
+          <span>Largeur : <strong id="calib-span-width" style="color: #38bdf8;">2560</strong> blocs</span>
+          <span>Hauteur : <strong id="calib-span-height" style="color: #38bdf8;">2048</strong> blocs</span>
+        </div>
+      </div>
+      <div class="modal-footer" style="display: flex; gap: 8px; justify-content: flex-end;">
+        <button id="btn-calib-auto" class="btn btn-outline" title="Calculer automatiquement selon la position des bases et des joueurs">
+          🎯 Auto-cadrer
+        </button>
+        <button id="btn-calib-save" class="btn btn-primary">
+          💾 Sauvegarder & Appliquer
+        </button>
+        <button id="btn-calib-cancel" class="btn btn-secondary">
+          Annuler
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- Scripts -->
-  <script type="module" src="/static/js/app.js"></script>
+  <script type="module" src="/static/js/app.js?v=2.1"></script>
 </body>
 </html>

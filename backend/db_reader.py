@@ -74,57 +74,50 @@ def resolve_db_path(db_name: Optional[str] = None) -> str:
 def resolve_map_image(db_path_or_name: Optional[str] = None, wid: int = 1) -> Optional[Tuple[str, int]]:
     """
     Find the most relevant and up-to-date custom map PNG image.
-    Prioritizes <db_base>_map.png over generic map.png for Overworld (wid=1).
-    For Nether (wid=2), looks for <db_base>_nether_map.png or nether_map.png.
-    When multiple candidate locations exist, selects the most recently modified file.
+    Prioritizes <db_base>_<dim>_map.png or <db_base>_map.png over generic equivalents.
+    Supports Overworld, Nether, The End, and custom world IDs.
     Returns (path, mtime) or None.
     """
     db_base = None
     if db_path_or_name:
         db_base = os.path.splitext(os.path.basename(db_path_or_name))[0]
 
+    dim_suffixes = []
     if wid == 2:
-        # Dedicated Nether candidate maps
-        dedicated_candidates = []
-        if db_base:
-            dedicated_candidates = [
-                f"data/{db_base}_nether_map.png",
-                f"{db_base}_nether_map.png",
-                f"/app/data/data/{db_base}_nether_map.png",
-                f"/app/data/{db_base}_nether_map.png",
-                f"frontend/{db_base}_nether_map.png",
-                f"/app/frontend/{db_base}_nether_map.png",
-            ]
-        generic_candidates = [
-            "data/nether_map.png",
-            "nether_map.png",
-            "data/map_nether.png",
-            "map_nether.png",
-            "/app/data/data/nether_map.png",
-            "/app/data/nether_map.png",
-            "frontend/nether_map.png",
-            "/app/frontend/nether_map.png",
-        ]
+        dim_suffixes = ["_nether_map.png", "_nether.png"]
+        gen_names = ["nether_map.png", "map_nether.png"]
+    elif wid == 3:
+        dim_suffixes = ["_end_map.png", "_the_end_map.png", "_end.png"]
+        gen_names = ["end_map.png", "the_end_map.png", "map_end.png"]
+    elif wid == 1:
+        dim_suffixes = ["_map.png", "_overworld_map.png"]
+        gen_names = ["map.png", "overworld_map.png"]
     else:
-        # Overworld candidates
-        dedicated_candidates = []
-        if db_base:
-            dedicated_candidates = [
-                f"data/{db_base}_map.png",
-                f"{db_base}_map.png",
-                f"/app/data/data/{db_base}_map.png",
-                f"/app/data/{db_base}_map.png",
-                f"frontend/{db_base}_map.png",
-                f"/app/frontend/{db_base}_map.png",
-            ]
-        generic_candidates = [
-            "data/map.png",
-            "map.png",
-            "/app/data/data/map.png",
-            "/app/data/map.png",
-            "frontend/map.png",
-            "/app/frontend/map.png",
-        ]
+        dim_suffixes = [f"_world{wid}_map.png", f"_{wid}_map.png", "_map.png"]
+        gen_names = [f"world{wid}_map.png", f"map_{wid}.png", "map.png"]
+
+    dedicated_candidates = []
+    if db_base:
+        for s in dim_suffixes:
+            dedicated_candidates.extend([
+                f"data/{db_base}{s}",
+                f"{db_base}{s}",
+                f"/app/data/data/{db_base}{s}",
+                f"/app/data/{db_base}{s}",
+                f"frontend/{db_base}{s}",
+                f"/app/frontend/{db_base}{s}",
+            ])
+
+    generic_candidates = []
+    for g in gen_names:
+        generic_candidates.extend([
+            f"data/{g}",
+            f"{g}",
+            f"/app/data/data/{g}",
+            f"/app/data/{g}",
+            f"frontend/{g}",
+            f"/app/frontend/{g}",
+        ])
 
     # 1. Check dedicated candidates first
     found_dedicated = []
@@ -160,32 +153,45 @@ def resolve_map_image(db_path_or_name: Optional[str] = None, wid: int = 1) -> Op
 def resolve_map_config(db_path_or_name: Optional[str] = None, wid: int = 1) -> Optional[dict]:
     """
     Find and load the most relevant map_config.json bounding coordinates.
-    Prioritizes <db_base>_map_config.json over generic map_config.json.
-    Supports Nether (wid=2) configs if present.
+    Prioritizes <db_base>_<dim>_map_config.json over generic configs.
+    Supports Overworld, Nether, The End, and custom world IDs.
     Returns config dict or None.
     """
     db_base = None
     if db_path_or_name:
         db_base = os.path.splitext(os.path.basename(db_path_or_name))[0]
 
-    suffix = "_nether_map_config.json" if wid == 2 else "_map_config.json"
-    gen_name = "nether_map_config.json" if wid == 2 else "map_config.json"
+    if wid == 2:
+        suffixes = ["_nether_map_config.json", "_nether_config.json"]
+        gen_names = ["nether_map_config.json", "map_nether_config.json"]
+    elif wid == 3:
+        suffixes = ["_end_map_config.json", "_the_end_map_config.json"]
+        gen_names = ["end_map_config.json", "the_end_map_config.json"]
+    elif wid == 1:
+        suffixes = ["_map_config.json", "_overworld_map_config.json"]
+        gen_names = ["map_config.json", "overworld_map_config.json"]
+    else:
+        suffixes = [f"_world{wid}_map_config.json", f"_{wid}_map_config.json", "_map_config.json"]
+        gen_names = [f"world{wid}_map_config.json", "map_config.json"]
 
     dedicated_candidates = []
     if db_base:
-        dedicated_candidates = [
-            f"data/{db_base}{suffix}",
-            f"{db_base}{suffix}",
-            f"/app/data/data/{db_base}{suffix}",
-            f"/app/data/{db_base}{suffix}",
-        ]
+        for s in suffixes:
+            dedicated_candidates.extend([
+                f"data/{db_base}{s}",
+                f"{db_base}{s}",
+                f"/app/data/data/{db_base}{s}",
+                f"/app/data/{db_base}{s}",
+            ])
 
-    generic_candidates = [
-        f"data/{gen_name}",
-        f"{gen_name}",
-        f"/app/data/data/{gen_name}",
-        f"/app/data/{gen_name}",
-    ]
+    generic_candidates = []
+    for g in gen_names:
+        generic_candidates.extend([
+            f"data/{g}",
+            f"{g}",
+            f"/app/data/data/{g}",
+            f"/app/data/{g}",
+        ])
 
     found_dedicated = []
     for cand in dedicated_candidates:
@@ -364,9 +370,51 @@ def get_metadata(db_path: str) -> Dict[str, Any]:
     conn = get_connection(db_path)
     c = conn.cursor()
 
-    # 1. Worlds
+    # 1. Dynamic Worlds & Classification (from co_world)
     c.execute("SELECT id, world FROM co_world;")
-    worlds = [{"id": r[0], "name": r[1]} for r in c.fetchall()]
+    raw_worlds = c.fetchall()
+    c.execute("SELECT wid, count(*) FROM co_block GROUP BY wid;")
+    activity_by_wid = {r[0]: r[1] for r in c.fetchall()}
+
+    worlds = []
+    default_wid = 1
+    max_act = -1
+
+    for wid, wname in raw_worlds:
+        wn_lower = wname.lower()
+        act = activity_by_wid.get(wid, 0)
+        if "nether" in wn_lower or "dim-1" in wn_lower:
+            wtype = "nether"
+            wicon = "🔥"
+            wlabel = "Nether"
+        elif "end" in wn_lower or "dim1" in wn_lower:
+            wtype = "the_end"
+            wicon = "🔮"
+            wlabel = "The End"
+        else:
+            wtype = "overworld"
+            wicon = "🌍"
+            wlabel = "Overworld"
+            if act > max_act:
+                max_act = act
+                default_wid = wid
+
+        worlds.append({
+            "id": wid,
+            "name": wname,
+            "type": wtype,
+            "dimension_type": wtype,
+            "icon": wicon,
+            "label": wlabel,
+            "activity": act
+        })
+
+    # Ensure at least one overworld exists
+    if not any(w["type"] == "overworld" for w in worlds) and worlds:
+        worlds[0]["type"] = "overworld"
+        worlds[0]["icon"] = "🌍"
+        worlds[0]["label"] = "Overworld"
+        default_wid = worlds[0]["id"]
 
     # 2. Real Players (exclude '#' entities)
     c.execute("SELECT id, user, uuid FROM co_user WHERE user NOT LIKE '#%' ORDER BY user ASC;")
@@ -420,6 +468,44 @@ def get_metadata(db_path: str) -> Dict[str, Any]:
         match_stop = t_max
 
     effective_start = match_start or fallback_start
+
+    # 3b. Extract Dynamic FK Game Rules from commands
+    pvp_day = None
+    nether_day = None
+    end_day = None
+    assault_day = None
+    day_duration_seconds = 1200  # Default: 20 minutes per Minecraft day
+
+    c.execute("""
+        SELECT time, message FROM co_command
+        WHERE message LIKE '/fk rules%' OR message LIKE '/rules%' OR message LIKE '/gamerule%'
+        ORDER BY time ASC
+    """)
+    for rt, rmsg in c.fetchall():
+        m_pvp = re.search(r'pvpCap\s+(\d+)', rmsg, re.IGNORECASE)
+        if m_pvp: pvp_day = int(m_pvp.group(1))
+        m_nether = re.search(r'netherCap\s+(\d+)', rmsg, re.IGNORECASE)
+        if m_nether: nether_day = int(m_nether.group(1))
+        m_end = re.search(r'endCap\s+(\d+)', rmsg, re.IGNORECASE)
+        if m_end: end_day = int(m_end.group(1))
+        m_tnt = re.search(r'tntCap\s+(\d+)', rmsg, re.IGNORECASE)
+        if m_tnt: assault_day = int(m_tnt.group(1))
+        m_dur = re.search(r'(?:dayDuration|dayLength)\s+(\d+)', rmsg, re.IGNORECASE)
+        if m_dur: day_duration_seconds = int(m_dur.group(1))
+
+    # Standard fallbacks if not defined in commands
+    if pvp_day is None: pvp_day = 3
+    if nether_day is None: nether_day = 4
+    if end_day is None: end_day = 5
+    if assault_day is None: assault_day = 7
+
+    rules = {
+        "pvp_day": pvp_day,
+        "nether_day": nether_day,
+        "end_day": end_day,
+        "assault_day": assault_day,
+        "day_duration_seconds": day_duration_seconds
+    }
 
     # 4. Parse Teams and Bases from commands
     bases = {}
@@ -530,6 +616,39 @@ def get_metadata(db_path: str) -> Dict[str, Any]:
         p["team"] = t_name
         p["team_color"] = get_team_color(t_name)
 
+    # 4c. Detect Chest Room / Heart of Base for each team
+    chest_rooms = {}
+    for b_name, b_data in bases.items():
+        c.execute("""
+            SELECT round(x), round(y), round(z), count(*) as cnt
+            FROM co_container
+            WHERE wid = ? AND (x - ?)*(x - ?) + (z - ?)*(z - ?) <= (? * ?)
+            GROUP BY round(x/3)*3, round(z/3)*3
+            ORDER BY cnt DESC
+            LIMIT 1
+        """, (default_wid, b_data["x"], b_data["x"], b_data["z"], b_data["z"], b_data.get("radius", 15) + 15, b_data.get("radius", 15) + 15))
+        ch_row = c.fetchone()
+        if ch_row and ch_row[3] >= 3:
+            cr_obj = {
+                "team": b_name,
+                "x": int(ch_row[0]),
+                "y": int(ch_row[1]),
+                "z": int(ch_row[2]),
+                "container_count": ch_row[3],
+                "color": b_data["color"]
+            }
+        else:
+            cr_obj = {
+                "team": b_name,
+                "x": b_data["x"],
+                "y": b_data["y"],
+                "z": b_data["z"],
+                "container_count": 0,
+                "color": b_data["color"]
+            }
+        chest_rooms[b_name] = cr_obj
+        b_data["chest_room"] = cr_obj
+
     # Calculate moment when at least half of real players are connected
     total_real_players = len(players_dict)
     half_threshold = (total_real_players + 1) // 2 if total_real_players > 0 else 1
@@ -573,7 +692,7 @@ def get_metadata(db_path: str) -> Dict[str, Any]:
     if half_players_time is None:
         half_players_time = match_start or fallback_start
 
-    # 4b. Player Dimension Presence Intervals (Overworld wid=1 vs Nether wid=2 vs Logged Out)
+    # 4b. Player Dimension Presence Intervals (dynamic for all worlds)
     c.execute("""
         SELECT user, time, wid, 0 as is_logout FROM co_block WHERE user IN (SELECT id FROM co_user WHERE user NOT LIKE '#%')
         UNION ALL
@@ -627,8 +746,9 @@ def get_metadata(db_path: str) -> Dict[str, Any]:
 
         player_dimensions[u] = spans
 
-    # 5. Coordinate Bounds per World (wid = 1 Overworld, wid = 2 Nether)
+    # 5. Smart Coordinate Bounds per World
     bounds = {}
+    auto_map_bounds = {}
     for w in worlds:
         wid = w["id"]
         c.execute("""
@@ -638,17 +758,36 @@ def get_metadata(db_path: str) -> Dict[str, Any]:
         """, (wid,))
         row = c.fetchone()
         if row and row[0] is not None:
-            # Add a 50 block buffer
+            min_x, max_x, min_z, max_z = row[0], row[1], row[2], row[3]
+            # Ensure all bases in this world are completely enveloped
+            if wid == default_wid and bases:
+                for b_data in bases.values():
+                    min_x = min(min_x, b_data["x"] - 60)
+                    max_x = max(max_x, b_data["x"] + 60)
+                    min_z = min(min_z, b_data["z"] - 60)
+                    max_z = max(max_z, b_data["z"] + 60)
+
+            pad = 50
             bounds[wid] = {
-                "min_x": row[0] - 30,
-                "max_x": row[1] + 30,
-                "min_z": row[2] - 30,
-                "max_z": row[3] + 30,
+                "min_x": min_x - pad,
+                "max_x": max_x + pad,
+                "min_z": min_z - pad,
+                "max_z": max_z + pad,
             }
         else:
             bounds[wid] = {"min_x": -500, "max_x": 500, "min_z": -500, "max_z": 500}
 
-    # 6. Key milestones (First diamond, First blood / kill, TNT, etc.)
+        auto_map_bounds[wid] = {
+            "min_x": bounds[wid]["min_x"],
+            "max_x": bounds[wid]["max_x"],
+            "min_z": bounds[wid]["min_z"],
+            "max_z": bounds[wid]["max_z"],
+            "width": bounds[wid]["max_x"] - bounds[wid]["min_x"],
+            "height": bounds[wid]["max_z"] - bounds[wid]["min_z"],
+            "is_auto": True
+        }
+
+    # 6. Key milestones (First diamond, First blood / kill, TNT, Chest Loots)
     milestones = []
 
     # First diamond ore mined
@@ -746,6 +885,33 @@ def get_metadata(db_path: str) -> Dict[str, Any]:
             "desc": f"{first_detonated[1]} a amorcé la 1ère TNT !"
         })
 
+    # Major FK Milestone: First enemy chest loots per team
+    for b_name, b_data in bases.items():
+        c.execute("""
+            SELECT c.time, u.user, m.material, c.amount, c.x, c.y, c.z
+            FROM co_container c
+            JOIN co_user u ON c.user = u.id
+            JOIN co_material_map m ON c.type = m.id
+            WHERE c.wid = ? AND c.action = 0 AND u.user NOT LIKE '#%'
+              AND (c.x - ?)*(c.x - ?) + (c.z - ?)*(c.z - ?) <= (? * ?)
+            ORDER BY c.time ASC
+        """, (default_wid, b_data["x"], b_data["x"], b_data["z"], b_data["z"], b_data.get("radius", 15) + 12, b_data.get("radius", 15) + 12))
+        for lt, lu, lmat, lamt, lx, ly, lz in c.fetchall():
+            thief_p = next((p for p in players_dict.values() if p["name"] == lu), None)
+            if thief_p and thief_p["team"] != b_name and thief_p["team"] != "neutral":
+                clean_mat = lmat.replace("minecraft:", "").replace("_", " ").capitalize()
+                milestones.append({
+                    "type": "chest_looted",
+                    "title": f"🚨 Pillage Salle des Coffres {b_name.capitalize()}",
+                    "time": lt,
+                    "player": lu,
+                    "team": thief_p["team"],
+                    "victim_team": b_name,
+                    "x": lx, "y": ly, "z": lz,
+                    "desc": f"{lu} ({thief_p['team'].capitalize()}) a pillé la salle des coffres de l'équipe {b_name.capitalize()} ({clean_mat}) !"
+                })
+                break
+
     if has_explicit_start and match_start:
         milestones.append({
             "type": "match_start",
@@ -765,21 +931,26 @@ def get_metadata(db_path: str) -> Dict[str, Any]:
     # Sort milestones by time
     milestones.sort(key=lambda m: m["time"])
 
-    # Resolve custom map configuration and image
-    map_bounds = resolve_map_config(db_path, wid=1)
-    map_info = resolve_map_image(db_path, wid=1)
-    has_custom_map = map_info is not None
-    custom_map_url = f"/api/map-image?db={os.path.basename(db_path)}&world=1&v={map_info[1]}" if map_info else None
+    # Resolve custom map configuration and image per world
+    world_maps = {}
+    for w in worlds:
+        wid = w["id"]
+        cfg = resolve_map_config(db_path, wid=wid) or auto_map_bounds.get(wid)
+        img_info = resolve_map_image(db_path, wid=wid)
+        world_maps[wid] = {
+            "has_custom_map": img_info is not None,
+            "custom_map_url": f"/api/map-image?db={os.path.basename(db_path)}&world={wid}&v={img_info[1]}" if img_info else None,
+            "map_bounds": cfg
+        }
 
-    nether_map_bounds = resolve_map_config(db_path, wid=2)
-    nether_map_info = resolve_map_image(db_path, wid=2)
-    has_nether_map = nether_map_info is not None
-    custom_nether_map_url = f"/api/map-image?db={os.path.basename(db_path)}&world=2&v={nether_map_info[1]}" if nether_map_info else None
+    # Backward-compatible overworld & nether fields
+    ow_cfg = world_maps.get(default_wid, {}).get("map_bounds") or auto_map_bounds.get(default_wid)
+    ow_info = world_maps.get(default_wid, {})
+    nether_w = next((w for w in worlds if w["type"] == "nether"), None)
+    nether_wid = nether_w["id"] if nether_w else 2
+    nether_info = world_maps.get(nether_wid, {})
 
     # Determine default cursor start time:
-    # 1. Official FK start if found
-    # 2. Otherwise when 50% of players are connected
-    # 3. Otherwise fallback start or min_time
     if has_explicit_start and match_start:
         default_start_time = match_start
     elif half_players_time:
@@ -793,8 +964,11 @@ def get_metadata(db_path: str) -> Dict[str, Any]:
         "db_name": os.path.basename(db_path),
         "db_path": db_path,
         "worlds": worlds,
+        "default_world_id": default_wid,
+        "rules": rules,
         "players": list(players_dict.values()),
         "bases": list(bases.values()),
+        "chest_rooms": chest_rooms,
         "time_range": {
             "min_time": t_min,
             "max_time": t_max,
@@ -807,13 +981,14 @@ def get_metadata(db_path: str) -> Dict[str, Any]:
             "duration_seconds": (match_stop - effective_start) if (effective_start and match_stop) else 0
         },
         "bounds": bounds,
-        "map_bounds": map_bounds,
+        "map_bounds": ow_cfg,
         "milestones": milestones,
-        "has_custom_map": has_custom_map,
-        "custom_map_url": custom_map_url,
-        "nether_map_bounds": nether_map_bounds,
-        "has_nether_map": has_nether_map,
-        "custom_nether_map_url": custom_nether_map_url,
+        "has_custom_map": ow_info.get("has_custom_map", False),
+        "custom_map_url": ow_info.get("custom_map_url"),
+        "nether_map_bounds": nether_info.get("map_bounds"),
+        "has_nether_map": nether_info.get("has_custom_map", False),
+        "custom_nether_map_url": nether_info.get("custom_map_url"),
+        "world_maps": world_maps,
         "player_dimensions": player_dimensions
     }
     _cache[cache_key] = result
@@ -1074,13 +1249,139 @@ def get_events(db_path: str, wid: int = 1, start_time: Optional[int] = None, end
             cl['user'] = '#creeper'
             creeper_explosions.append(cl)
 
+    # 4. FK Fundamental: Enemy Chest Room Loots
+    meta = get_metadata(db_path)
+    players_by_name = {p["name"]: p for p in meta["players"]}
+    bases = meta.get("bases", [])
+
+    time_container_filter = ""
+    container_params = [wid]
+    if start_time is not None and end_time is not None:
+        time_container_filter = "AND c.time BETWEEN ? AND ?"
+        container_params.extend([start_time, end_time])
+
+    chest_loots = []
+    # Check for withdrawals in enemy base boundaries
+    for b in bases:
+        b_x, b_z, b_rad, b_team = b["x"], b["z"], b.get("radius", 15) + 12, b["team"]
+        b_color = b.get("color", "#94a3b8")
+
+        c.execute(f"""
+            SELECT c.time, u.user, c.x, c.y, c.z, m.material, c.amount
+            FROM co_container c
+            JOIN co_user u ON c.user = u.id
+            JOIN co_material_map m ON c.type = m.id
+            WHERE c.wid = ? AND c.action = 0 {time_container_filter}
+              AND u.user NOT LIKE '#%'
+              AND (c.x - ?)*(c.x - ?) + (c.z - ?)*(c.z - ?) <= (? * ?)
+            ORDER BY c.time ASC
+        """, container_params + [b_x, b_x, b_z, b_z, b_rad, b_rad])
+        raw_loots = c.fetchall()
+
+        # Group loots into sessions within 25 seconds per thief
+        sessions = defaultdict(list)
+        for lt, lu, lx, ly, lz, lmat, lamt in raw_loots:
+            thief_p = players_by_name.get(lu)
+            if not thief_p or thief_p["team"] == b_team or thief_p["team"] == "neutral":
+                continue
+            sessions[lu].append({
+                "time": lt, "x": lx, "y": ly, "z": lz, "mat": lmat, "amount": lamt or 1,
+                "thief": lu, "thief_team": thief_p["team"], "thief_color": thief_p["team_color"]
+            })
+
+        for thief, items in sessions.items():
+            curr_cluster = []
+            for item in items:
+                if not curr_cluster or (item["time"] - curr_cluster[-1]["time"] <= 25):
+                    curr_cluster.append(item)
+                else:
+                    clean_items = [
+                        f"{it['amount']}x {it['mat'].replace('minecraft:', '').replace('_', ' ')}"
+                        for it in curr_cluster[:5]
+                    ]
+                    first_it = curr_cluster[0]
+                    tot_stolen = sum(it["amount"] for it in curr_cluster)
+                    chest_loots.append({
+                        "time": first_it["time"],
+                        "thief": thief,
+                        "user": thief,
+                        "thief_team": first_it["thief_team"],
+                        "looter_team": first_it["thief_team"],
+                        "thief_team_color": first_it["thief_color"],
+                        "looter_team_color": first_it["thief_color"],
+                        "victim_team": b_team,
+                        "base_team": b_team,
+                        "victim_team_color": b_color,
+                        "x": first_it["x"], "y": first_it["y"], "z": first_it["z"],
+                        "item_count": tot_stolen,
+                        "items_stolen": tot_stolen,
+                        "items_summary": ", ".join(clean_items),
+                        "desc": f"🚨 {thief} ({first_it['thief_team'].capitalize()}) a pillé la salle des coffres {b_team.capitalize()} !"
+                    })
+                    curr_cluster = [item]
+            if curr_cluster:
+                clean_items = [
+                    f"{it['amount']}x {it['mat'].replace('minecraft:', '').replace('_', ' ')}"
+                    for it in curr_cluster[:5]
+                ]
+                first_it = curr_cluster[0]
+                tot_stolen = sum(it["amount"] for it in curr_cluster)
+                chest_loots.append({
+                    "time": first_it["time"],
+                    "thief": thief,
+                    "user": thief,
+                    "thief_team": first_it["thief_team"],
+                    "looter_team": first_it["thief_team"],
+                    "thief_team_color": first_it["thief_color"],
+                    "looter_team_color": first_it["thief_color"],
+                    "victim_team": b_team,
+                    "base_team": b_team,
+                    "victim_team_color": b_color,
+                    "x": first_it["x"], "y": first_it["y"], "z": first_it["z"],
+                    "item_count": tot_stolen,
+                    "items_stolen": tot_stolen,
+                    "items_summary": ", ".join(clean_items),
+                    "desc": f"🚨 {thief} ({first_it['thief_team'].capitalize()}) a pillé la salle des coffres {b_team.capitalize()} !"
+                })
+
+    chest_loots.sort(key=lambda x: x["time"])
+
+    # 5. FK Fundamental: Base Wall Breaches (Explosions causing block damage in enemy base)
+    breaches = []
+    for exp in tnt_explosions:
+        if not exp.get("blocks") or exp["blocks"] < 2:
+            continue
+        exp_x, exp_z = exp["x"], exp["z"]
+        for b in bases:
+            b_x, b_z, b_rad, b_team = b["x"], b["z"], b.get("radius", 15) + 6, b["team"]
+            if math.hypot(exp_x - b_x, exp_z - b_z) <= b_rad:
+                attacker = exp.get("user")
+                attacker_p = players_by_name.get(attacker)
+                attacker_team = attacker_p["team"] if attacker_p else "inconnu"
+                if attacker_team != b_team:
+                    breaches.append({
+                        "time": exp["time"],
+                        "attacker": attacker or "TNT",
+                        "attacker_team": attacker_team,
+                        "victim_team": b_team,
+                        "team": b_team,
+                        "victim_team_color": b.get("color", "#94a3b8"),
+                        "x": exp_x, "y": exp["y"], "z": exp_z,
+                        "blocks": exp["blocks"],
+                        "desc": f"💥 Brèche dans la base {b_team.capitalize()} ({exp['blocks']} blocs détruits par {attacker or 'TNT'})"
+                    })
+
+    breaches.sort(key=lambda x: x["time"])
+
     explosions = tnt_explosions + creeper_explosions
     explosions.sort(key=lambda x: x['time'])
 
     return {
         "deaths": deaths,
         "chats": chats,
-        "explosions": explosions
+        "explosions": explosions,
+        "chest_loots": chest_loots,
+        "breaches": breaches
     }
 
 
@@ -1549,6 +1850,31 @@ def get_match_recap(db_path: str) -> Dict[str, Any]:
     weapons_master = max(leaderboard, key=lambda x: x["kills"]) if leaderboard else None
     blaster = max(leaderboard, key=lambda x: x.get("tnt_detonated", 0)) if leaderboard else None
 
+    # Fallen Kingdoms Core Events: Chest Loots & Base Breaches
+    primary_wid = meta.get("default_world_id", 1)
+    fk_events = get_events(db_path, wid=primary_wid)
+    all_chest_loots = fk_events.get("chest_loots", [])
+    all_breaches = fk_events.get("breaches", [])
+
+    # Pillager Award (Top enemy chest looter)
+    looter_counts = defaultdict(int)
+    looter_team_map = {}
+    for cl in all_chest_loots:
+        u = cl["user"]
+        looter_counts[u] += cl.get("items_stolen", 1)
+        if cl.get("looter_team"):
+            looter_team_map[u] = cl["looter_team"]
+
+    pillager_king = None
+    if looter_counts:
+        top_looter = max(looter_counts.items(), key=lambda x: x[1])
+        t_name = looter_team_map.get(top_looter[0], "neutral")
+        pillager_king = {
+            "name": top_looter[0],
+            "team": t_name,
+            "items_stolen": top_looter[1]
+        }
+
     duel_data = get_pvp_duel_matrix(db_path)
 
     duration_sec = max(0, match_stop - match_start)
@@ -1556,7 +1882,8 @@ def get_match_recap(db_path: str) -> Dict[str, Any]:
     m = (duration_sec % 3600) // 60
     s = duration_sec % 60
     duration_str = f"{h:02d}h {m:02d}m {s:02d}s"
-    mc_days = math.floor(duration_sec / 1200) + 1
+    day_duration = meta.get("rules", {}).get("day_duration_seconds", 1200) or 1200
+    mc_days = math.floor(duration_sec / day_duration) + 1
 
     team_emojis = {
         "yellow": "🟡",
@@ -1578,6 +1905,7 @@ def get_match_recap(db_path: str) -> Dict[str, Any]:
         f"⏱️ **Durée :** {duration_str} ({mc_days} Jours Minecraft)",
         f"👥 **Combattants :** {len(leaderboard)} joueurs | {len(team_rankings)} équipes",
         f"⚔️ **Total Kills PvP :** {totals.get('kills', 0)} | 💎 **Diamants :** {totals.get('diamonds', 0)} | 💥 **TNT :** {totals.get('tnt_detonated', 0)}",
+        f"🚨 **Pillages Coffres :** {len(all_chest_loots)} sessions | 💣 **Brèches de Base :** {len(all_breaches)}",
         "",
         "🥇 **CLASSEMENT FINAL DES ÉQUIPES :**"
     ]
@@ -1607,6 +1935,28 @@ def get_match_recap(db_path: str) -> Dict[str, Any]:
     if blaster and blaster.get("tnt_detonated", 0) > 0:
         t_emoji = team_emojis.get(blaster["team"], "")
         lines.append(f"💥 **Artificier en Chef :** {blaster['name']} ({t_emoji} {blaster['team'].capitalize()}) — **{blaster['tnt_detonated']} TNT détonées**")
+    if pillager_king:
+        t_emoji = team_emojis.get(pillager_king["team"], "")
+        lines.append(f"🚨 **Roi des Pillards :** {pillager_king['name']} ({t_emoji} {pillager_king['team'].capitalize()}) — **{pillager_king['items_stolen']} items pillés**")
+
+    if all_chest_loots:
+        lines.extend([
+            "",
+            "🚨 **PILLAGES DE SALLES DES COFFRES :**"
+        ])
+        for cl in all_chest_loots[:5]:
+            l_team = cl.get("looter_team", "").capitalize()
+            b_team = cl.get("base_team", "").capitalize()
+            lines.append(f"• [{l_team}] **{cl['user']}** a pillé les coffres des [{b_team}] ({cl.get('items_stolen', 0)} items)")
+
+    if all_breaches:
+        lines.extend([
+            "",
+            "💥 **BRÈCHES DE REMPARTS DE BASE :**"
+        ])
+        for br in all_breaches[:5]:
+            b_team = br.get("team", "").capitalize()
+            lines.append(f"• Brèche TNT ouverte dans la base [{b_team}] ({br.get('blocks', 0)} blocs détruits)")
 
     if duel_data.get("duels"):
         lines.extend([
@@ -1634,14 +1984,19 @@ def get_match_recap(db_path: str) -> Dict[str, Any]:
             "total_players": len(leaderboard),
             "total_kills": totals.get("kills", 0),
             "total_diamonds": totals.get("diamonds", 0),
-            "total_tnt_detonated": totals.get("tnt_detonated", 0)
+            "total_tnt_detonated": totals.get("tnt_detonated", 0),
+            "total_chest_loots": len(all_chest_loots),
+            "total_breaches": len(all_breaches)
         },
         "team_rankings": team_rankings,
         "awards": {
             "mvp": mvp,
             "mining_king": mining_king,
             "weapons_master": weapons_master,
-            "blaster": blaster
+            "blaster": blaster,
+            "pillager_king": pillager_king
         },
+        "chest_loots": all_chest_loots,
+        "breaches": all_breaches,
         "discord_markdown": discord_md
     }

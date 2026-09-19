@@ -17,16 +17,18 @@ export class MapRenderer {
     this.worldId = 1;
     this.trajectories = []; // [time, user_id, x, y, z, action]
     this.placedBlocks = []; // [x, z, y, time, material, user_id]
-    this.events = { deaths: [], chats: [], explosions: [] };
+    this.events = { deaths: [], chats: [], explosions: [], chest_loots: [], breaches: [] };
     this.playersById = {};
 
-    // Playback state
+    // Playback & Filter state
     this.currentTime = 0;
     this.followPlayerId = null;
+    this.yFilter = 'all'; // 'all', 'surface', 'mines'
 
     // Layer visibility
     this.layers = {
       bases: true,
+      chests: true,
       blocks: true,
       players: true,
       names: true,
@@ -137,8 +139,9 @@ export class MapRenderer {
     this.meta = meta;
     this.worldId = worldId;
     this.trajectories = trajectories || [];
-    this.placedBlocks = placedBlocks || [];
-    this.events = events || { deaths: [], chats: [], explosions: [] };
+    // Sort placed blocks by firstTime ascending for binary search & viewport culling
+    this.placedBlocks = (placedBlocks || []).sort((a, b) => a[3] - b[3]);
+    this.events = events || { deaths: [], chats: [], explosions: [], chest_loots: [], breaches: [] };
 
     // Pre-index trajectories by playerId for high-performance O(1) lookups
     this.playerTrajectories = new Map();
@@ -162,35 +165,35 @@ export class MapRenderer {
       }
     }
 
-    // Preload custom map if present
-    if (this.worldId === 1 && meta && meta.has_custom_map && meta.custom_map_url) {
+    // Dynamic map preloading for ANY world from meta.world_maps
+    const wMap = meta?.world_maps?.[this.worldId];
+    if (wMap && wMap.has_custom_map && wMap.custom_map_url) {
       this.customMapLoaded = false;
       this.customMapImage = new Image();
       this.customMapImage.onload = () => {
         this.customMapLoaded = true;
       };
       this.customMapImage.onerror = () => {
-        console.warn('[MapRenderer] Échec du chargement de la carte custom :', meta.custom_map_url);
+        console.warn(`[MapRenderer] Échec chargement carte monde ${this.worldId}:`, wMap.custom_map_url);
+        this.customMapLoaded = false;
+      };
+      this.customMapImage.src = wMap.custom_map_url;
+    } else if (this.worldId === (meta?.default_world_id || 1) && meta?.has_custom_map && meta?.custom_map_url) {
+      this.customMapLoaded = false;
+      this.customMapImage = new Image();
+      this.customMapImage.onload = () => {
+        this.customMapLoaded = true;
+      };
+      this.customMapImage.onerror = () => {
         this.customMapLoaded = false;
       };
       this.customMapImage.src = meta.custom_map_url;
-    } else if (this.worldId === 2 && meta && meta.has_nether_map && meta.custom_nether_map_url) {
-      this.customMapLoaded = false;
-      this.customMapImage = new Image();
-      this.customMapImage.onload = () => {
-        this.customMapLoaded = true;
-      };
-      this.customMapImage.onerror = () => {
-        console.warn('[MapRenderer] Échec du chargement de la carte nether custom :', meta.custom_nether_map_url);
-        this.customMapLoaded = false;
-      };
-      this.customMapImage.src = meta.custom_nether_map_url;
     } else {
       this.customMapImage = null;
       this.customMapLoaded = false;
     }
 
-    // Initial center on bases or 0,0
+    // Initial center on bases or bounds
     this.fitBounds();
   }
 
@@ -315,37 +318,44 @@ export class MapRenderer {
 
   renderMapBackground() {
     const ctx = this.ctx;
-    const b = (this.worldId === 1 && this.customMapLoaded && this.meta.map_bounds)
+    const b = (this.customMapLoaded && this.meta.map_bounds)
       ? this.meta.map_bounds
-      : (this.meta.bounds[this.worldId] || { min_x: -500, max_x: 500, min_z: -500, max_z: 500 });
+      : (this.meta?.bounds?.[this.worldId] || { min_x: -500, max_x: 500, min_z: -500, max_z: 500 });
 
-    if (this.worldId === 1 && this.customMapLoaded && this.customMapImage) {
-      const p1 = this.worldToScreen(b.min_x, b.min_z);
-      const p2 = this.worldToScreen(b.max_x, b.max_z);
-      ctx.drawImage(this.customMapImage, p1.x, p1.y, p2.x - p1.x, p2.y - p1.y);
-    } else if (this.worldId === 2) {
+    const p1 = this.worldToScreen(b.min_x, b.min_z);
+    const p2 = this.worldToScreen(b.max_x, b.max_z);
+    const w = p2.x - p1.x;
+    const h = p2.y - p1.y;
+
+    if (this.customMapLoaded && this.customMapImage) {
+      ctx.drawImage(this.customMapImage, p1.x, p1.y, w, h);
+      return;
+    }
+
+    // Determine dimension type dynamically
+    const worldObj = this.meta?.worlds?.find(x => x.id === this.worldId);
+    const dimType = worldObj?.dimension_type || (this.worldId === 2 ? 'nether' : (this.worldId === 3 ? 'the_end' : 'overworld'));
+
+    if (dimType === 'nether') {
       // Atmospheric Nether procedural background
-      const p1 = this.worldToScreen(b.min_x, b.min_z);
-      const p2 = this.worldToScreen(b.max_x, b.max_z);
-
       const grad = ctx.createRadialGradient(
         (p1.x + p2.x) / 2, (p1.y + p2.y) / 2, 20,
-        (p1.x + p2.x) / 2, (p1.y + p2.y) / 2, Math.max(p2.x - p1.x, p2.y - p1.y) / 1.4
+        (p1.x + p2.x) / 2, (p1.y + p2.y) / 2, Math.max(w, h) / 1.4
       );
       grad.addColorStop(0, '#2d0a0a');
       grad.addColorStop(0.6, '#1a0404');
       grad.addColorStop(1, '#0c0202');
       ctx.fillStyle = grad;
-      ctx.fillRect(p1.x, p1.y, p2.x - p1.x, p2.y - p1.y);
+      ctx.fillRect(p1.x, p1.y, w, h);
 
       // Arena border in glowing red
       ctx.strokeStyle = '#dc2626';
       ctx.lineWidth = 2.5;
-      ctx.strokeRect(p1.x, p1.y, p2.x - p1.x, p2.y - p1.y);
+      ctx.strokeRect(p1.x, p1.y, w, h);
 
       // Central Nether Portal (0,0)
       const center = this.worldToScreen(0, 0);
-      ctx.fillStyle = 'rgba(239, 68, 68, 0.12)';
+      ctx.fillStyle = 'rgba(239, 68, 68, 0.15)';
       ctx.beginPath();
       ctx.arc(center.x, center.y, 40 * this.scale, 0, Math.PI * 2);
       ctx.fill();
@@ -353,15 +363,59 @@ export class MapRenderer {
       ctx.setLineDash([4, 4]);
       ctx.stroke();
       ctx.setLineDash([]);
+
+      ctx.fillStyle = '#f87171';
+      ctx.font = 'bold 10px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('🔥 Portail Nether Central (0,0)', center.x, center.y - 44 * this.scale);
+    } else if (dimType === 'the_end') {
+      // Atmospheric The End procedural background
+      const grad = ctx.createRadialGradient(
+        (p1.x + p2.x) / 2, (p1.y + p2.y) / 2, 30,
+        (p1.x + p2.x) / 2, (p1.y + p2.y) / 2, Math.max(w, h) / 1.4
+      );
+      grad.addColorStop(0, '#1c0e2d');
+      grad.addColorStop(0.7, '#0d0517');
+      grad.addColorStop(1, '#05020a');
+      ctx.fillStyle = grad;
+      ctx.fillRect(p1.x, p1.y, w, h);
+
+      // Arena border in glowing purple
+      ctx.strokeStyle = '#a855f7';
+      ctx.lineWidth = 2.5;
+      ctx.strokeRect(p1.x, p1.y, w, h);
+
+      // Central Exit Portal / End Podium (0,0)
+      const center = this.worldToScreen(0, 0);
+      ctx.fillStyle = 'rgba(168, 85, 247, 0.18)';
+      ctx.beginPath();
+      ctx.arc(center.x, center.y, 40 * this.scale, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#c084fc';
+      ctx.setLineDash([4, 4]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      ctx.fillStyle = '#d8b4fe';
+      ctx.font = 'bold 10px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('🔮 Podium de l\'End (0,0)', center.x, center.y - 44 * this.scale);
     } else {
-      // Procedural tactical background
-      const p1 = this.worldToScreen(b.min_x, b.min_z);
-      const p2 = this.worldToScreen(b.max_x, b.max_z);
+      // Procedural tactical Overworld background
+      const grad = ctx.createRadialGradient(
+        (p1.x + p2.x) / 2, (p1.y + p2.y) / 2, 50,
+        (p1.x + p2.x) / 2, (p1.y + p2.y) / 2, Math.max(w, h) / 1.3
+      );
+      grad.addColorStop(0, '#0f172a');
+      grad.addColorStop(0.7, '#090d16');
+      grad.addColorStop(1, '#05070c');
+      ctx.fillStyle = grad;
+      ctx.fillRect(p1.x, p1.y, w, h);
 
       // Arena border
-      ctx.strokeStyle = '#1e293b';
+      ctx.strokeStyle = '#334155';
       ctx.lineWidth = 2;
-      ctx.strokeRect(p1.x, p1.y, p2.x - p1.x, p2.y - p1.y);
+      ctx.strokeRect(p1.x, p1.y, w, h);
 
       // Center (0,0) Spawn Circle
       const center = this.worldToScreen(0, 0);
@@ -369,10 +423,15 @@ export class MapRenderer {
       ctx.beginPath();
       ctx.arc(center.x, center.y, 40 * this.scale, 0, Math.PI * 2);
       ctx.fill();
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.18)';
       ctx.setLineDash([4, 4]);
       ctx.stroke();
       ctx.setLineDash([]);
+
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
+      ctx.font = 'bold 9px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('SPAWN (0,0)', center.x, center.y + 3);
     }
   }
 
@@ -444,7 +503,8 @@ export class MapRenderer {
 
   renderBases() {
     const ctx = this.ctx;
-    if (!this.meta.bases) return;
+    if (!this.meta || !this.meta.bases) return;
+    const t = this.currentTime;
 
     for (const base of this.meta.bases) {
       const p = this.worldToScreen(base.x, base.z);
@@ -474,6 +534,71 @@ export class MapRenderer {
       ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
       ctx.font = '9px monospace';
       ctx.fillText(`(${base.x}, ${base.z})`, p.x, p.y - r + 6);
+
+      // 1. Chest Room Render if enabled
+      if (this.layers.chests && base.chest_room) {
+        const cr = this.worldToScreen(base.chest_room.x, base.chest_room.z);
+
+        // Chest room zone highlight
+        ctx.fillStyle = 'rgba(245, 158, 11, 0.22)';
+        ctx.strokeStyle = '#f59e0b';
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath();
+        ctx.arc(cr.x, cr.y, 9 * this.scale, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Chest Room Icon & Tag
+        ctx.font = 'bold 10px sans-serif';
+        ctx.fillStyle = '#fbbf24';
+        ctx.fillText('📦 Coffres', cr.x, cr.y - 11);
+      }
+
+      // 2. Live Alerts: Enemy Chest Looting (active in last 30 seconds)
+      if (this.events.chest_loots) {
+        const recentLoot = this.events.chest_loots.find(l =>
+          l.base_team === base.team && (t - l.time >= 0 && t - l.time <= 30)
+        );
+        if (recentLoot) {
+          const pulse = (Math.sin(Date.now() / 150) + 1) / 2;
+          const alertRadius = r + 12 + pulse * 14;
+          ctx.strokeStyle = `rgba(239, 68, 68, ${0.85 - pulse * 0.4})`;
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, alertRadius, 0, Math.PI * 2);
+          ctx.stroke();
+
+          // Banner
+          ctx.fillStyle = 'rgba(220, 38, 38, 0.95)';
+          const alertText = `🚨 PILLAGE COFFRES (${recentLoot.looter_team?.toUpperCase() || 'ENNEMI'}) !`;
+          ctx.font = 'bold 11px sans-serif';
+          const txtW = ctx.measureText(alertText).width;
+          ctx.fillRect(p.x - txtW / 2 - 8, p.y + r + 10, txtW + 16, 20);
+          ctx.fillStyle = '#ffffff';
+          ctx.fillText(alertText, p.x, p.y + r + 24);
+        }
+      }
+
+      // 3. Live Alerts: Wall Breach (TNT explosion in base territory in last 25s)
+      if (this.events.breaches) {
+        const recentBreach = this.events.breaches.find(br =>
+          br.team === base.team && (t - br.time >= 0 && t - br.time <= 25)
+        );
+        if (recentBreach) {
+          const bp = this.worldToScreen(recentBreach.x, recentBreach.z);
+          ctx.strokeStyle = '#eab308';
+          ctx.lineWidth = 2.5;
+          ctx.beginPath();
+          ctx.arc(bp.x, bp.y, 14 * this.scale, 0, Math.PI * 2);
+          ctx.stroke();
+
+          ctx.font = 'bold 10px sans-serif';
+          ctx.fillStyle = '#fef08a';
+          ctx.fillText('💥 BRÈCHE !', bp.x, bp.y - 12);
+        }
+      }
     }
   }
 
@@ -482,29 +607,94 @@ export class MapRenderer {
     const t = this.currentTime;
     const blockSize = Math.max(1.5, Math.round(1 * this.scale));
 
-    for (const b of this.placedBlocks) {
-      // b = [x, z, y, first_time, material, user_id]
-      const [x, z, y, firstTime, mat] = b;
-      if (firstTime > t) continue;
+    if (!this.placedBlocks || this.placedBlocks.length === 0) return;
+
+    // 1. Binary search upper bound where firstTime <= t
+    let low = 0;
+    let high = this.placedBlocks.length - 1;
+    let maxIdx = -1;
+    while (low <= high) {
+      const mid = Math.floor((low + high) / 2);
+      if (this.placedBlocks[mid][3] <= t) {
+        maxIdx = mid;
+        low = mid + 1;
+      } else {
+        high = mid - 1;
+      }
+    }
+    if (maxIdx === -1) return;
+
+    // 2. Viewport culling bounding box in world coordinates
+    const pad = 10;
+    const minWorldX = (0 - this.offsetX) / this.scale - pad;
+    const maxWorldX = (this.canvas.width - this.offsetX) / this.scale + pad;
+    const minWorldZ = (0 - this.offsetY) / this.scale - pad;
+    const maxWorldZ = (this.canvas.height - this.offsetY) / this.scale + pad;
+
+    // 3. Batch coordinates by block category to minimize canvas state switches
+    const buckets = {
+      stone: [],
+      wood: [],
+      water: [],
+      tnt: [],
+      chest: [],
+      other: []
+    };
+
+    const yFilter = this.yFilter;
+    const blocks = this.placedBlocks;
+
+    for (let i = 0; i <= maxIdx; i++) {
+      const b = blocks[i];
+      const x = b[0];
+      const z = b[1];
+
+      // Viewport culling
+      if (x < minWorldX || x > maxWorldX || z < minWorldZ || z > maxWorldZ) continue;
+
+      const y = b[2];
+      // Altitude Y filter
+      if (yFilter === 'surface' && y <= 55) continue;
+      if (yFilter === 'mines' && y > 55) continue;
 
       const p = this.worldToScreen(x, z);
+      const px = p.x - blockSize / 2;
+      const py = p.y - blockSize / 2;
+      const mat = b[4];
 
-      // Color coding for Minecraft blocks
       if (mat.includes('cobblestone') || mat.includes('stone')) {
-        ctx.fillStyle = '#94a3b8';
+        buckets.stone.push(px, py);
       } else if (mat.includes('wood') || mat.includes('plank') || mat.includes('log')) {
-        ctx.fillStyle = '#b45309';
+        buckets.wood.push(px, py);
       } else if (mat.includes('water')) {
-        ctx.fillStyle = 'rgba(56, 189, 248, 0.6)';
+        buckets.water.push(px, py);
       } else if (mat.includes('tnt')) {
-        ctx.fillStyle = '#ef4444';
+        buckets.tnt.push(px, py);
       } else if (mat.includes('chest')) {
-        ctx.fillStyle = '#f59e0b';
+        buckets.chest.push(px, py);
       } else {
-        ctx.fillStyle = '#64748b';
+        buckets.other.push(px, py);
       }
+    }
 
-      ctx.fillRect(p.x - blockSize / 2, p.y - blockSize / 2, blockSize, blockSize);
+    // 4. Fast batch drawing per category
+    const colors = {
+      stone: '#94a3b8',
+      wood: '#b45309',
+      water: 'rgba(56, 189, 248, 0.6)',
+      tnt: '#ef4444',
+      chest: '#f59e0b',
+      other: '#64748b'
+    };
+
+    for (const [key, coords] of Object.entries(buckets)) {
+      if (coords.length === 0) continue;
+      ctx.fillStyle = colors[key];
+      ctx.beginPath();
+      for (let j = 0; j < coords.length; j += 2) {
+        ctx.rect(coords[j], coords[j + 1], blockSize, blockSize);
+      }
+      ctx.fill();
     }
   }
 
@@ -621,6 +811,10 @@ export class MapRenderer {
       const player = this.playersById[playerId];
       if (!player) continue;
 
+      // Altitude Y filter
+      if (this.yFilter === 'surface' && pos.y <= 55) continue;
+      if (this.yFilter === 'mines' && pos.y > 55) continue;
+
       const p = this.worldToScreen(pos.x, pos.z);
       const isHovered = this.hoveredPlayer && this.hoveredPlayer.id === player.id;
       const isFollowed = this.followPlayerId === player.id;
@@ -628,6 +822,15 @@ export class MapRenderer {
       // Generous size for clear visibility at all zoom levels
       const headRadius = isHovered || isFollowed ? 20 : 15;
       const teamColor = player.team_color || '#3b82f6';
+      const isMines = pos.y < 55;
+      const isHighAltitude = pos.y > 85;
+
+      ctx.save();
+
+      // If in caves / mines, reduce opacity to suggest subterranean depth
+      if (isMines) {
+        ctx.globalAlpha = 0.72;
+      }
 
       // 1. Large Glowing Team Halo / Aura
       ctx.save();
@@ -639,9 +842,16 @@ export class MapRenderer {
       // Outer vibrant team border
       ctx.strokeStyle = teamColor;
       ctx.lineWidth = isHovered || isFollowed ? 4.5 : 3.5;
-      ctx.shadowColor = teamColor;
-      ctx.shadowBlur = isHovered || isFollowed ? 14 : 8;
+      ctx.shadowColor = isHighAltitude ? 'rgba(0, 0, 0, 0.8)' : teamColor;
+      ctx.shadowBlur = isHovered || isFollowed ? 14 : (isHighAltitude ? 12 : 8);
+      if (isHighAltitude) {
+        ctx.shadowOffsetX = 4;
+        ctx.shadowOffsetY = 6;
+      }
       ctx.beginPath();
+      if (isMines) {
+        ctx.setLineDash([4, 2]); // Dashed border for miners underground
+      }
       ctx.arc(p.x, p.y, headRadius, 0, Math.PI * 2);
       ctx.stroke();
       ctx.restore();
@@ -681,7 +891,18 @@ export class MapRenderer {
         ctx.stroke();
       }
 
-      // 5. Team & Player Name Badge
+      // 5. Altitude Icon Badge (⛏️ for mines, 🪶 for high towers)
+      if (isMines || isHighAltitude) {
+        ctx.font = 'bold 9px sans-serif';
+        const altText = isMines ? `⛏️ ${Math.round(pos.y)}` : `🪶 ${Math.round(pos.y)}`;
+        const altW = ctx.measureText(altText).width;
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+        ctx.fillRect(p.x + headRadius - 4, p.y - headRadius - 2, altW + 6, 13);
+        ctx.fillStyle = isMines ? '#38bdf8' : '#fbbf24';
+        ctx.fillText(altText, p.x + headRadius - 1, p.y - headRadius + 8);
+      }
+
+      // 6. Team & Player Name Badge
       if (this.layers.names) {
         ctx.font = 'bold 11px sans-serif';
         const teamLabel = player.team && player.team !== 'neutral' ? player.team.toUpperCase() : '';
@@ -712,6 +933,8 @@ export class MapRenderer {
         ctx.textAlign = 'center';
         ctx.fillText(fullText, p.x + 4, badgeY + badgeHeight - 4.5);
       }
+
+      ctx.restore();
     }
   }
 

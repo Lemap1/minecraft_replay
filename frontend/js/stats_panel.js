@@ -23,6 +23,7 @@ export class StatsPanel {
     this.miniTnt = document.getElementById('mini-tnt');
     this.miniBlocks = document.getElementById('mini-blocks');
     this.sideLeaderboardList = document.getElementById('side-leaderboard-list');
+    this.kingdomsStatusBox = document.getElementById('kingdoms-status-box');
     this.killfeedList = document.getElementById('killfeed-list');
     this.playersRoster = document.getElementById('players-roster');
     this.playerCount = document.getElementById('player-count');
@@ -262,6 +263,7 @@ export class StatsPanel {
       this.refreshStats(t, forceFetch);
     }
     // Update live feeds synchronously with t
+    this.updateKingdomsStatus(t);
     this.updateKillfeed(t);
     this.updateChat(t);
   }
@@ -441,35 +443,212 @@ export class StatsPanel {
     });
   }
 
+  updateKingdomsStatus(t) {
+    if (!this.kingdomsStatusBox || !this.meta || !this.meta.bases) return;
+    this.kingdomsStatusBox.innerHTML = '';
+
+    const bases = this.meta.bases;
+    if (bases.length === 0) return;
+
+    // Header label
+    const header = document.createElement('div');
+    header.style.display = 'flex';
+    header.style.justifyContent = 'space-between';
+    header.style.alignItems = 'center';
+    header.style.fontSize = '10px';
+    header.style.color = '#94a3b8';
+    header.style.fontWeight = '700';
+    header.style.textTransform = 'uppercase';
+    header.style.letterSpacing = '0.5px';
+    header.style.padding = '0 2px 2px 2px';
+    header.innerHTML = `<span>Statut des Royaumes</span><span>État Base</span>`;
+    this.kingdomsStatusBox.appendChild(header);
+
+    for (const b of bases) {
+      const team = b.team;
+      const teamColor = b.color || '#64748b';
+
+      // Check if enemy loot has occurred on this base up to t
+      const loots = (this.events.chest_loots || []).filter(l => l.base_team === team && l.time <= t);
+      const isLooted = loots.length > 0;
+
+      // Check if breaches have occurred up to t, and specifically if recent (within 60s)
+      const breaches = (this.events.breaches || []).filter(br => br.team === team && br.time <= t);
+      const isUnderAssault = breaches.some(br => t - br.time <= 60 && t - br.time >= 0);
+
+      // Determine state and badge
+      let statusBadge = {
+        icon: '🟢',
+        text: 'Intact',
+        color: '#22c55e',
+        bg: 'rgba(34, 197, 94, 0.12)'
+      };
+
+      if (isLooted) {
+        statusBadge = {
+          icon: '🚨',
+          text: `Coffres Pillés (${loots.length})`,
+          color: '#ef4444',
+          bg: 'rgba(239, 68, 68, 0.15)'
+        };
+      } else if (isUnderAssault) {
+        statusBadge = {
+          icon: '⚠️',
+          text: 'Assaut en cours',
+          color: '#f59e0b',
+          bg: 'rgba(245, 158, 11, 0.15)'
+        };
+      } else if (breaches.length > 0) {
+        statusBadge = {
+          icon: '💥',
+          text: `Brèche (${breaches.length})`,
+          color: '#eab308',
+          bg: 'rgba(234, 179, 8, 0.12)'
+        };
+      }
+
+      const row = document.createElement('div');
+      row.className = 'kingdom-status-pill';
+      row.style.display = 'flex';
+      row.style.justifyContent = 'space-between';
+      row.style.alignItems = 'center';
+      row.style.padding = '4px 8px';
+      row.style.background = 'rgba(15, 23, 42, 0.7)';
+      row.style.borderRadius = '4px';
+      row.style.borderLeft = `3px solid ${teamColor}`;
+      row.style.fontSize = '11px';
+
+      row.innerHTML = `
+        <span style="font-weight: 700; color: ${teamColor};">${team.toUpperCase()}</span>
+        <span style="background: ${statusBadge.bg}; color: ${statusBadge.color}; padding: 1px 6px; border-radius: 10px; font-size: 10px; font-weight: 600;">
+          ${statusBadge.icon} ${statusBadge.text}
+        </span>
+      `;
+
+      // If clicked, seek to base or last breach/loot
+      row.style.cursor = 'pointer';
+      row.addEventListener('click', () => {
+        if (loots.length > 0) {
+          this.onSeekTime(loots[loots.length - 1].time);
+        } else if (breaches.length > 0) {
+          this.onSeekTime(breaches[breaches.length - 1].time);
+        }
+      });
+
+      this.kingdomsStatusBox.appendChild(row);
+    }
+  }
+
   updateKillfeed(t) {
     if (!this.killfeedList) return;
 
-    // Show kills up to t, most recent at top
-    const pastDeaths = this.events.deaths.filter(d => d.time <= t).slice(-25).reverse();
-    this.killfeedList.innerHTML = '';
+    // Collect all event types up to t
+    const allEvents = [];
 
-    if (pastDeaths.length === 0) {
-      this.killfeedList.innerHTML = '<div style="color: #64748b; font-size: 11px; text-align: center; padding: 12px;">Aucune élimination pour le moment.</div>';
+    // 1. Deaths / Kills
+    if (this.events.deaths) {
+      for (const d of this.events.deaths) {
+        if (d.time <= t) {
+          allEvents.push({
+            type: 'death',
+            time: d.time,
+            data: d
+          });
+        }
+      }
+    }
+
+    // 2. Chest Room Loots
+    if (this.events.chest_loots) {
+      for (const cl of this.events.chest_loots) {
+        if (cl.time <= t) {
+          allEvents.push({
+            type: 'chest_loot',
+            time: cl.time,
+            data: cl
+          });
+        }
+      }
+    }
+
+    // 3. Wall Breaches
+    if (this.events.breaches) {
+      for (const br of this.events.breaches) {
+        if (br.time <= t) {
+          allEvents.push({
+            type: 'breach',
+            time: br.time,
+            data: br
+          });
+        }
+      }
+    }
+
+    // Sort descending by time (most recent first)
+    allEvents.sort((a, b) => b.time - a.time);
+    const displayEvents = allEvents.slice(0, 30);
+
+    this.killfeedList.innerHTML = '';
+    if (displayEvents.length === 0) {
+      this.killfeedList.innerHTML = '<div style="color: #64748b; font-size: 11px; text-align: center; padding: 12px;">Aucun événement pour le moment.</div>';
       return;
     }
 
-    for (const d of pastDeaths) {
+    for (const ev of displayEvents) {
       const el = document.createElement('div');
       el.className = 'kill-entry';
-      const isPvP = d.is_pvp;
-      el.innerHTML = `
-        <div style="display: flex; justify-content: space-between;">
-          <span style="font-weight: 700; color: ${isPvP ? '#ef4444' : '#f97316'}; font-size: 11px;">
-            ${isPvP ? '⚔️ Élimination PvP' : '💀 Mort Environnement'}
-          </span>
-          <span class="kill-time">${this.formatClock(d.time)}</span>
-        </div>
-        <div class="kill-text">
-          ${isPvP ? `<span class="killer">${d.killer}</span> a éliminé <strong>${d.victim}</strong>` : `<strong>${d.victim}</strong> est mort (${d.killer})`}
-        </div>
-      `;
+      el.style.cursor = 'pointer';
+
+      if (ev.type === 'chest_loot') {
+        const cl = ev.data;
+        el.style.borderLeft = '3px solid #f59e0b';
+        el.style.background = 'rgba(245, 158, 11, 0.08)';
+        el.innerHTML = `
+          <div style="display: flex; justify-content: space-between;">
+            <span style="font-weight: 700; color: #f59e0b; font-size: 11px;">
+              🚨 Pillage Salle des Coffres
+            </span>
+            <span class="kill-time">${this.formatClock(cl.time)}</span>
+          </div>
+          <div class="kill-text">
+            <span style="color: ${cl.looter_team_color || '#fbbf24'}; font-weight: bold;">[${(cl.looter_team || 'Ennemi').toUpperCase()}] ${cl.user}</span>
+            a pillé les coffres des <strong>[${cl.base_team.toUpperCase()}]</strong>
+            <span style="color: #cbd5e1; font-size: 10px;">(${cl.items_stolen} items)</span>
+          </div>
+        `;
+      } else if (ev.type === 'breach') {
+        const br = ev.data;
+        el.style.borderLeft = '3px solid #ef4444';
+        el.style.background = 'rgba(239, 68, 68, 0.08)';
+        el.innerHTML = `
+          <div style="display: flex; justify-content: space-between;">
+            <span style="font-weight: 700; color: #ef4444; font-size: 11px;">
+              💥 Brèche de Base TNT
+            </span>
+            <span class="kill-time">${this.formatClock(br.time)}</span>
+          </div>
+          <div class="kill-text">
+            Brèche créée dans les remparts de la base <strong>[${br.team.toUpperCase()}]</strong> !
+          </div>
+        `;
+      } else {
+        const d = ev.data;
+        const isPvP = d.is_pvp;
+        el.innerHTML = `
+          <div style="display: flex; justify-content: space-between;">
+            <span style="font-weight: 700; color: ${isPvP ? '#ef4444' : '#f97316'}; font-size: 11px;">
+              ${isPvP ? '⚔️ Élimination PvP' : '💀 Mort Environnement'}
+            </span>
+            <span class="kill-time">${this.formatClock(d.time)}</span>
+          </div>
+          <div class="kill-text">
+            ${isPvP ? `<span class="killer">${d.killer}</span> a éliminé <strong>${d.victim}</strong>` : `<strong>${d.victim}</strong> est mort (${d.killer})`}
+          </div>
+        `;
+      }
+
       el.addEventListener('click', () => {
-        this.onSeekTime(d.time);
+        this.onSeekTime(ev.time);
       });
       this.killfeedList.appendChild(el);
     }
@@ -754,6 +933,8 @@ export class StatsPanel {
             <div class="recap-pill">⚔️ <strong>${s.total_kills}</strong> Kills</div>
             <div class="recap-pill">💎 <strong>${s.total_diamonds}</strong> Diamants</div>
             <div class="recap-pill">💥 <strong>${s.total_tnt_detonated}</strong> TNT</div>
+            ${s.total_chest_loots ? `<div class="recap-pill" style="border-color: #f59e0b; color: #f59e0b;">🚨 <strong>${s.total_chest_loots}</strong> Pillages</div>` : ''}
+            ${s.total_breaches ? `<div class="recap-pill" style="border-color: #ef4444; color: #ef4444;">💣 <strong>${s.total_breaches}</strong> Brèches</div>` : ''}
           `;
         }
       } catch (err) {
